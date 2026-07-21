@@ -1,0 +1,23 @@
+{
+  "seed": 20260719,
+  "image_size": 128,
+  "visual_frames": 8,
+  "sensor_steps": 64,
+  "width_mult": 1.0,
+  "d_model": 192,
+  "fusion_layers": 2,
+  "fusion_heads": 4,
+  "skeleton_motion": true,
+  "dropout": 0.15,
+  "modality_dropout": 0.15,
+  "batch_size": 16,
+  "grad_accum_steps": 1,
+  "num_workers": 4,
+  "epochs": 1,
+  "learning_rate": 0.0004,
+  "weight_decay": 0.03,
+  "label_smoothing": 0.08,
+  "class_balance_power": 0.0,
+  "amp": true,
+  "early_stopping_patience": 1
+}

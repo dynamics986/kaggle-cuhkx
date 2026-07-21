@@ -1,0 +1,22 @@
+{
+  "seed": 20260719,
+  "image_size": 96,
+  "visual_frames": 4,
+  "sensor_steps": 32,
+  "width_mult": 0.5,
+  "d_model": 96,
+  "fusion_layers": 1,
+  "fusion_heads": 4,
+  "dropout": 0.1,
+  "modality_dropout": 0.1,
+  "batch_size": 2,
+  "grad_accum_steps": 2,
+  "num_workers": 0,
+  "epochs": 2,
+  "learning_rate": 0.0005,
+  "weight_decay": 0.02,
+  "label_smoothing": 0.05,
+  "amp": true,
+  "early_stopping_patience": 2
+}
+
