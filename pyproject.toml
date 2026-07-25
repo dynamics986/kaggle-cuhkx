@@ -23,6 +23,7 @@ cuhkx-ablate = "cuhkx_har.ablate:main"
 cuhkx-predict = "cuhkx_har.predict:main"
 cuhkx-check-submission = "cuhkx_har.submission:main"
 cuhkx-ensemble-oof = "cuhkx_har.ensemble_oof:main"
+cuhkx-cv-report = "cuhkx_har.cv:main"
 
 [dependency-groups]
 dev = [

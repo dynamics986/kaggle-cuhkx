@@ -85,6 +85,31 @@ def test_motion_skeleton_encoder_forward() -> None:
     assert model(batch).shape == (1, 40)
 
 
+def test_pose_motion_residual_skeleton_encoder_forward() -> None:
+    config = ExperimentConfig(
+        image_size=64,
+        visual_frames=2,
+        sensor_steps=8,
+        width_mult=0.5,
+        d_model=64,
+        fusion_layers=1,
+        fusion_heads=4,
+        skeleton_motion_residual=True,
+        batch_size=1,
+        num_workers=0,
+        epochs=1,
+    )
+    model = MultimodalHAR(config).eval()
+    batch = {
+        "visual": torch.randn(1, 3, 2, 3, 64, 64),
+        "skeleton": torch.randn(1, 8, SKELETON_JOINTS * SKELETON_FEATURES),
+        "imu": torch.randn(1, 8, IMU_FEATURES),
+        "radar": torch.randn(1, 8, RADAR_FEATURES),
+        "modality_mask": torch.ones(1, 6, dtype=torch.bool),
+    }
+    assert model(batch).shape == (1, 40)
+
+
 def test_skeleton_encoder_modes_are_exclusive() -> None:
     try:
         ExperimentConfig(skeleton_graph=True, skeleton_motion=True)
@@ -101,6 +126,15 @@ def test_horizontal_flip_probability_is_validated() -> None:
         assert "horizontal_flip_probability" in str(error)
     else:
         raise AssertionError("Expected an invalid flip probability to fail")
+
+
+def test_pose_motion_residual_mode_is_exclusive() -> None:
+    try:
+        ExperimentConfig(skeleton_motion=True, skeleton_motion_residual=True)
+    except ValueError as error:
+        assert "exclusive" in str(error)
+    else:
+        raise AssertionError("Expected incompatible skeleton encoder modes to fail")
 
 
 def test_directional_temporal_pooling_forward() -> None:

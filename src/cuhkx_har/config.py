@@ -17,12 +17,14 @@ class ExperimentConfig:
     fusion_heads: int = 4
     skeleton_graph: bool = False
     skeleton_motion: bool = False
+    skeleton_motion_residual: bool = False
     horizontal_flip_probability: float = 0.0
     preserve_aspect_ratio: bool = False
     shared_visual_sampling: bool = False
     temporal_pooling: str = "mean"
     dropout: float = 0.15
     modality_dropout: float = 0.15
+    imu_device_dropout: float = 0.0
     batch_size: int = 2
     grad_accum_steps: int = 8
     num_workers: int = 2
@@ -37,14 +39,19 @@ class ExperimentConfig:
     def __post_init__(self) -> None:
         if self.d_model % self.fusion_heads:
             raise ValueError("d_model must be divisible by fusion_heads")
-        if self.skeleton_graph and self.skeleton_motion:
-            raise ValueError("skeleton_graph and skeleton_motion are mutually exclusive")
+        skeleton_modes = sum(
+            (self.skeleton_graph, self.skeleton_motion, self.skeleton_motion_residual)
+        )
+        if skeleton_modes > 1:
+            raise ValueError("skeleton_graph, skeleton_motion, and skeleton_motion_residual are exclusive")
         if not 0 <= self.horizontal_flip_probability <= 1:
             raise ValueError("horizontal_flip_probability must be in [0, 1]")
         if self.temporal_pooling not in {"mean", "directional"}:
             raise ValueError("temporal_pooling must be 'mean' or 'directional'")
         if not 0 <= self.modality_dropout < 1:
             raise ValueError("modality_dropout must be in [0, 1)")
+        if not 0 <= self.imu_device_dropout < 1:
+            raise ValueError("imu_device_dropout must be in [0, 1)")
         if not 0 <= self.class_balance_power <= 1:
             raise ValueError("class_balance_power must be in [0, 1]")
         for name in ("image_size", "visual_frames", "sensor_steps", "batch_size"):

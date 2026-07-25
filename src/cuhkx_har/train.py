@@ -185,6 +185,7 @@ def train_fold(
         horizontal_flip_probability=config.horizontal_flip_probability,
         preserve_aspect_ratio=config.preserve_aspect_ratio,
         shared_visual_sampling=config.shared_visual_sampling,
+        imu_device_dropout=config.imu_device_dropout,
     )
     train_set = MultimodalDataset(train_frame, training=True, **common)
     valid_set = MultimodalDataset(valid_frame, training=False, **common)

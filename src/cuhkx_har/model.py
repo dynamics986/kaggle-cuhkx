@@ -156,6 +156,36 @@ class SkeletonMotionEncoder(nn.Module):
         return self.temporal(motion)
 
 
+class SkeletonPoseMotionResidualEncoder(nn.Module):
+    """Pose encoder with a gated velocity/acceleration residual branch.
+
+    Pose remains the default representation.  The gate begins near 0.12, so
+    motion only contributes when optimization finds it useful for a feature
+    dimension and sample.  This avoids replacing a strong pose representation
+    with the weaker standalone motion encoder.
+    """
+
+    def __init__(self, d_model: int, dropout: float, pooling: str = "mean") -> None:
+        super().__init__()
+        self.pose = TemporalEncoder(
+            SKELETON_JOINTS * SKELETON_FEATURES, d_model, dropout, pooling
+        )
+        self.motion = SkeletonMotionEncoder(d_model, dropout, pooling)
+        self.gate = nn.Sequential(
+            nn.Linear(d_model * 2, d_model),
+            nn.SiLU(),
+            nn.Linear(d_model, d_model),
+        )
+        nn.init.constant_(self.gate[-1].bias, -2.0)
+        self.output = nn.LayerNorm(d_model)
+
+    def forward(self, sequence: torch.Tensor) -> torch.Tensor:
+        pose = self.pose(sequence)
+        motion = self.motion(sequence)
+        gate = torch.sigmoid(self.gate(torch.cat([pose, motion], dim=-1)))
+        return self.output(pose + gate * motion)
+
+
 def skeleton_adjacency() -> torch.Tensor:
     edges = (
         (0, 1),
@@ -268,6 +298,10 @@ class MultimodalHAR(nn.Module):
             )
         elif config.skeleton_motion:
             self.skeleton_encoder = SkeletonMotionEncoder(
+                d_model, config.dropout, config.temporal_pooling
+            )
+        elif config.skeleton_motion_residual:
+            self.skeleton_encoder = SkeletonPoseMotionResidualEncoder(
                 d_model, config.dropout, config.temporal_pooling
             )
         else:

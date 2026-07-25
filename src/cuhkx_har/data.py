@@ -108,6 +108,7 @@ class MultimodalDataset(Dataset[dict[str, Any]]):
         horizontal_flip_probability: float = 0.0,
         preserve_aspect_ratio: bool = False,
         shared_visual_sampling: bool = False,
+        imu_device_dropout: float = 0.0,
     ) -> None:
         self.manifest = manifest.reset_index(drop=True).fillna("")
         self.data_root = Path(data_root).resolve()
@@ -123,6 +124,7 @@ class MultimodalDataset(Dataset[dict[str, Any]]):
         self.horizontal_flip_probability = horizontal_flip_probability
         self.preserve_aspect_ratio = preserve_aspect_ratio
         self.shared_visual_sampling = shared_visual_sampling
+        self.imu_device_dropout = imu_device_dropout
 
     def __len__(self) -> int:
         return len(self.manifest)
@@ -223,6 +225,13 @@ class MultimodalDataset(Dataset[dict[str, Any]]):
         skeleton = self._normalize("skeleton", skeleton)
         imu = self._normalize("imu", imu)
         radar = self._normalize("radar", radar)
+        if self.training and self.imu_device_dropout and random.random() < self.imu_device_dropout:
+            # IMU is stored in five fixed 16-feature device slots.  Drop one
+            # slot after normalization so missing-device robustness does not
+            # alter normalization statistics or the inference data path.
+            device = random.randrange(IMU_DEVICES)
+            start = device * IMU_FEATURES_PER_DEVICE
+            imu[:, start : start + IMU_FEATURES_PER_DEVICE] = 0.0
         if len(skeleton) != self.sensor_steps:
             skeleton = resample_sequence(skeleton, self.sensor_steps)
             imu = resample_sequence(imu, self.sensor_steps)

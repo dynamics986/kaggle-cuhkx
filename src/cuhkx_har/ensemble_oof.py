@@ -66,6 +66,57 @@ def scan_weights(
     return sorted(results, key=lambda row: (-float(row["oof_accuracy"]), row["candidate_weight"]))
 
 
+def crossfit_weight_selection(
+    labels: np.ndarray,
+    baseline_probabilities: np.ndarray,
+    candidate_probabilities: np.ndarray,
+    fold_ids: np.ndarray,
+    steps: int,
+) -> dict[str, object]:
+    """Evaluate blending without choosing a fold's weight on that fold.
+
+    The ordinary pooled OOF scan is useful to choose a final deployment weight,
+    but its best score is optimistic because it selects after seeing every OOF
+    label.  This leave-one-fold-out estimate is the unbiased guardrail used
+    while deciding whether an ensemble idea is worth keeping.
+    """
+    unique_folds = np.unique(fold_ids)
+    rows: list[dict[str, object]] = []
+    all_predictions = np.empty(len(labels), dtype=np.int64)
+    for held_out in unique_folds:
+        selection_mask = fold_ids != held_out
+        held_out_mask = ~selection_mask
+        selection = scan_weights(
+            labels[selection_mask],
+            baseline_probabilities[selection_mask],
+            candidate_probabilities[selection_mask],
+            fold_ids[selection_mask],
+            steps,
+        )[0]
+        weight = float(selection["candidate_weight"])
+        probabilities = (
+            (1.0 - weight) * baseline_probabilities[held_out_mask]
+            + weight * candidate_probabilities[held_out_mask]
+        )
+        predictions = probabilities.argmax(axis=1)
+        all_predictions[held_out_mask] = predictions
+        rows.append(
+            {
+                "held_out_fold": int(held_out),
+                "selected_on_other_folds_candidate_weight": weight,
+                "selection_accuracy": float(selection["oof_accuracy"]),
+                "held_out_accuracy": float((predictions == labels[held_out_mask]).mean()),
+            }
+        )
+    correct = all_predictions == labels
+    return {
+        "crossfit_oof_accuracy": float(correct.mean()),
+        "correct": int(correct.sum()),
+        "examples": int(len(labels)),
+        "folds": rows,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Scan a common weight for two OOF model families")
     parser.add_argument("--baseline", nargs="+", type=Path, required=True)
@@ -100,7 +151,19 @@ def main() -> None:
         np.concatenate(fold_parts),
         args.steps,
     )
-    payload = {"folds": len(args.baseline), "steps": args.steps, "results": results}
+    crossfit = crossfit_weight_selection(
+        np.concatenate(label_parts),
+        np.concatenate(baseline_parts),
+        np.concatenate(candidate_parts),
+        np.concatenate(fold_parts),
+        args.steps,
+    )
+    payload = {
+        "folds": len(args.baseline),
+        "steps": args.steps,
+        "results": results,
+        "crossfit_weight_selection": crossfit,
+    }
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
@@ -116,6 +179,10 @@ def main() -> None:
             f"OOF={row['oof_accuracy']:.5f} ({row['correct']}/{row['examples']}) "
             f"{folds}"
         )
+    print(
+        "Cross-fitted blend accuracy="
+        f"{crossfit['crossfit_oof_accuracy']:.5f} ({crossfit['correct']}/{crossfit['examples']})"
+    )
 
 
 if __name__ == "__main__":

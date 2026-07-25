@@ -1,5 +1,44 @@
 # Experiment log
 
+## Current protocol and in-progress experiment (2026-07-25)
+
+All new model decisions use the frozen five-fold subject-held-out manifest at
+`manifests/cv5/train.csv` with seed `20260719`.  The reported selection metric
+is pooled OOF clip top-1 accuracy; an experiment is not accepted until all five
+folds complete and `cuhkx-cv-report` validates their OOF coverage.
+
+| Experiment | Config | Status | Available result | Decision |
+| --- | --- | --- | --- | --- |
+| Synced flip + IMU device dropout | `configs/synced_flip_imu_dropout.json` | Complete | 5-fold OOF `0.47332` (1,437/3,036); fold scores `0.40952`, `0.51509`, `0.48333`, `0.50718`, `0.45625`; fold std `0.03834` | Current comparable baseline and only complete five-fold model. |
+
+This candidate uses 15% training-only dropout of one fixed IMU device slot.
+Its checkpoint was created with `batch_size=16` and `num_workers=4`; changing
+either setting creates a separate throughput experiment and cannot resume this
+checkpoint.
+
+### Failed Visual V2 regularization launch (2026-07-25)
+
+`cv5_visual_v2_regularized` with 192px inputs, 12 frames, `batch_size=24`, and
+`num_workers=8` aborted before its first training batch in the CUDA allocator.
+The idle RTX 5060 Laptop GPU had 8 GB VRAM; the most likely cause is the larger
+batch exceeding usable VRAM. This is not a model-quality result. The revised
+trial uses `batch_size=16`, `num_workers=6`, and a two-epoch reliability probe.
+
+### Visual V2 regularization fold-2 screen (2026-07-25)
+
+`cv5_visual_v2_regularized_b16_w6`, fold 2, completed successfully after the
+reliability probe with `batch_size=16` and `num_workers=6`. Its best validation
+accuracy was `0.44626` after 71.8 minutes. This fails the pre-registered
+fold-2 gate of `0.48333` (the current five-fold baseline on the same fold), so
+the candidate is rejected for now. Do not train its remaining four folds and do
+not use it in an ensemble.
+
+## Historical three-fold development record
+
+The results below predate the frozen five-fold protocol.  They are useful for
+understanding prior decisions but are not comparable to current CV scores and
+must not be used as the final model-selection baseline.
+
 All validation scores below use fold 0 with held-out subjects `user16`, `user2`, `user20`,
 `user21`, `user23`, and `user7`. Test data was not used for model selection, normalization,
 pseudo-labeling, or manual labeling.

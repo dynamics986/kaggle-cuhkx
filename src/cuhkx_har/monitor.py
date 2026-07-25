@@ -13,7 +13,9 @@ def read_json(path: Path, default: Any) -> Any:
     except (FileNotFoundError, json.JSONDecodeError, PermissionError):
         return default
 
-
+# "._-=+*#@" Each character represents 8 equal intervals from low to high 
+# Specifically, when all values are equal (high==low), 
+# the function will directly return "=" repeated len (values) times, indicating no fluctuations.
 def sparkline(values: list[float]) -> str:
     if not values:
         return "waiting"
