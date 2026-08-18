@@ -1,4 +1,5 @@
-# July 26: supervised screen, unattended overnight CV
+
+# July 26 training log
 
 ## Phase A failure diagnosis
 
@@ -27,119 +28,6 @@ full-frame, 12-frame, directional design while targeting the observed
 cross-subject overfitting. The larger V3 model is explicitly deferred: an
 unattended job must not start an unverified model that may OOM or fail workers.
 
-## Now: supervised Phase 0 reliability probe (5–15 minutes)
-
-This has the exact architecture, batch size, workers, and augmentations planned
-for tonight; only the epoch count is shortened to two.
-
-```powershell
-cd C:\Users\dynam\Documents\CUHK-X\har-solution
-
-$probe = "artifacts\probe_visual_v2_regularized_b16_w6"
-uv run cuhkx-train `
-  --config configs\visual_v2_regularized_probe.json `
-  --manifest manifests\cv5\train.csv `
-  --data-root ..\Small-Model-Track\Training\extracted\HAR\data `
-  --cache-dir cache-64 `
-  --output-dir $probe `
-  --fold 2
-```
-
-Monitor from another PowerShell window:
-
-```powershell
-uv run cuhkx-monitor `
-  --run-dir artifacts\probe_visual_v2_regularized_b16_w6\fold_2 `
-  --patience 2
-```
-
-Proceed only when a `summary.json` is written with no CUDA abort or worker
-failure and peak GPU memory is comfortably below 8 GB. If it fails, edit both
-V2 configs to `batch_size: 12`, use a new probe directory, and repeat.
-
-## Now: supervised Phase 1 fold-2 screen (up to 2 hours)
-
-The short probe cannot be resumed because it has a different epoch count. Run a
-full, fresh fold-2 screen after Phase 0 passes:
-
-```powershell
-$screen = "artifacts\cv5_visual_v2_regularized_b16_w6"
-uv run cuhkx-train `
-  --config configs\visual_v2_regularized.json `
-  --manifest manifests\cv5\train.csv `
-  --data-root ..\Small-Model-Track\Training\extracted\HAR\data `
-  --cache-dir cache-64 `
-  --output-dir $screen `
-  --fold 2
-```
-
-```powershell
-uv run cuhkx-monitor `
-  --run-dir artifacts\cv5_visual_v2_regularized_b16_w6\fold_2 `
-  --patience 10
-```
-
-Before leaving, inspect the fold-2 `summary.json`. Start the overnight job only
-if best validation accuracy is at least `0.48333` and the best epoch is not an
-obvious one-epoch spike. This is a screening gate, not a CV result.
-
-**Result (2026-07-25):** fold 2 completed at `0.44626` in 71.8 minutes. It did
-not pass this gate. Phase 2 must not be started for
-`cv5_visual_v2_regularized_b16_w6`.
-
-## Tonight: unattended Phase 2 (8–10 hours)
-
-If and only if a future Phase 1 passes, start this sequential loop. It runs the four
-remaining folds; fold 2 is excluded because it already used the exact same
-configuration. Do not add `--resume` to this loop.
-
-```powershell
-$screen = "artifacts\cv5_visual_v2_regularized_b16_w6"
-foreach ($fold in @(0, 1, 3, 4)) {
-  uv run cuhkx-train `
-    --config configs\visual_v2_regularized.json `
-    --manifest manifests\cv5\train.csv `
-    --data-root ..\Small-Model-Track\Training\extracted\HAR\data `
-    --cache-dir cache-64 `
-    --output-dir $screen `
-    --fold $fold
-}
-```
-
-If a fold is interrupted, resume it the next day with its own matching fold,
-configuration, and `last.pt`; never use one fold's checkpoint in this loop.
-
-## Morning: OOF audit and ensemble test
-
-First confirm every fold has `summary.json` and `validation_predictions.csv`.
-Then run the strict audit:
-
-```powershell
-uv run cuhkx-cv-report `
-  --manifest manifests\cv5\train.csv `
-  --predictions `
-    artifacts\cv5_visual_v2_regularized_b16_w6\fold_0\validation_predictions.csv `
-    artifacts\cv5_visual_v2_regularized_b16_w6\fold_1\validation_predictions.csv `
-    artifacts\cv5_visual_v2_regularized_b16_w6\fold_2\validation_predictions.csv `
-    artifacts\cv5_visual_v2_regularized_b16_w6\fold_3\validation_predictions.csv `
-    artifacts\cv5_visual_v2_regularized_b16_w6\fold_4\validation_predictions.csv `
-  --name cv5_visual_v2_regularized_b16_w6 `
-  --output artifacts\cv5_visual_v2_regularized_b16_w6\cv_report.json
-```
-
-Evaluate complementary errors only after the candidate completes five folds:
-
-```powershell
-uv run cuhkx-ensemble-oof `
-  --baseline artifacts\cv5_synced_flip_imu_dropout\fold_0\validation_predictions.csv artifacts\cv5_synced_flip_imu_dropout\fold_1\validation_predictions.csv artifacts\cv5_synced_flip_imu_dropout\fold_2\validation_predictions.csv artifacts\cv5_synced_flip_imu_dropout\fold_3\validation_predictions.csv artifacts\cv5_synced_flip_imu_dropout\fold_4\validation_predictions.csv `
-  --candidate artifacts\cv5_visual_v2_regularized_b16_w6\fold_0\validation_predictions.csv artifacts\cv5_visual_v2_regularized_b16_w6\fold_1\validation_predictions.csv artifacts\cv5_visual_v2_regularized_b16_w6\fold_2\validation_predictions.csv artifacts\cv5_visual_v2_regularized_b16_w6\fold_3\validation_predictions.csv artifacts\cv5_visual_v2_regularized_b16_w6\fold_4\validation_predictions.csv `
-  --steps 40 `
-  --output artifacts\cv5_visual_v2_regularized_b16_w6\ensemble_scan.json
-```
-
-Keep the candidate only if its full OOF improves on 0.47332 or its
-cross-fitted blend improves on the baseline. Record the result in
-`docs/EXPERIMENTS.md`; do not submit before that decision.
 
 ## Replacement plan after the failed Visual V2 screen: Pose + Motion residual gate
 
@@ -165,7 +53,7 @@ path is never replaced. The change is intentionally confined to the Skeleton
 encoder. Visual streams, IMU, radar, fusion, subject folds, and normalizer
 rules remain unchanged.
 
-### Now: two-epoch reliability probe (5–15 minutes)
+### two-epoch reliability probe (5–15 minutes)
 
 ```powershell
 cd C:\Users\dynam\Documents\CUHK-X\har-solution
@@ -188,7 +76,7 @@ uv run cuhkx-monitor `
 
 Require a normal `summary.json` and a model size below 100 MB before continuing.
 
-### Now: supervised fold-2 screen (about 1–2 hours)
+### supervised fold-2 screen (about 1–2 hours)
 
 ```powershell
 $residual = "artifacts\cv5_pose_motion_residual"
@@ -211,7 +99,7 @@ Start the unattended run only if this screen reaches at least `0.48333`, the
 current baseline's fold-2 score, and the validation curve is not a one-epoch
 spike. Do not combine this model with the failed Visual V2 candidate.
 
-### Tonight: unattended remaining folds (8–10 hours)
+### Night: unattended remaining folds (8–10 hours)
 
 If the fold-2 gate passes, run the following before leaving. Fold 2 is omitted
 because it already completed with the identical configuration.
@@ -259,3 +147,173 @@ The next engineering option, only if this gate fails, is Skeleton-specific
 augmentation (small joint jitter and body-scale variation) after a coordinate
 system audit. It is a better next bet than filling the 100 MB parameter limit
 or launching another unvalidated Visual V2 family unattended.
+
+## Completed result and Kaggle submission (2026-07-26)
+
+The pose + motion residual gate completed all five folds successfully.
+
+| Model / evaluation | OOF clip accuracy | Change vs. baseline |
+| --- | ---: | ---: |
+| Synced flip + IMU device dropout | 0.47332 | — |
+| Pose + motion residual gate | 0.48650 | +0.01318 |
+| Cross-fitted two-family blend | 0.49736 | +0.02404 |
+
+The cross-fitted blend improved every held-out fold, which is much stronger
+evidence than a pooled OOF gain alone. The pooled OOF scan selects the final
+common deployment mix of **0.25 baseline + 0.75 pose-motion residual**. Its
+pooled OOF is 0.50198; use 0.49736 as the less-optimistic validation estimate.
+
+The ten checkpoints total 51.7 MB, below the 100 MB limit. Generate predictions
+with equal weight within each family: 0.05 for each of the five baseline folds
+and 0.15 for each of the five pose-motion residual folds.
+
+```powershell
+cd C:\Users\dynam\Documents\CUHK-X\har-solution
+
+uv run cuhkx-predict `
+  --checkpoints `
+    artifacts\cv5_synced_flip_imu_dropout\fold_0\best.pt `
+    artifacts\cv5_synced_flip_imu_dropout\fold_1\best.pt `
+    artifacts\cv5_synced_flip_imu_dropout\fold_2\best.pt `
+    artifacts\cv5_synced_flip_imu_dropout\fold_3\best.pt `
+    artifacts\cv5_synced_flip_imu_dropout\fold_4\best.pt `
+    artifacts\cv5_pose_motion_residual\fold_0\best.pt `
+    artifacts\cv5_pose_motion_residual\fold_1\best.pt `
+    artifacts\cv5_pose_motion_residual\fold_2\best.pt `
+    artifacts\cv5_pose_motion_residual\fold_3\best.pt `
+    artifacts\cv5_pose_motion_residual\fold_4\best.pt `
+  --weights 0.05 0.05 0.05 0.05 0.05 0.15 0.15 0.15 0.15 0.15 `
+  --manifest manifests\cv5\test.csv `
+  --data-root ..\Small-Model-Track\Testing\data\small_model_track_test `
+  --cache-dir cache-64 `
+  --views 3 `
+  --output artifacts\submission_pose_motion_blend.csv
+```
+
+Validate the file before uploading it manually on Kaggle:
+
+```powershell
+uv run cuhkx-check-submission `
+  --submission artifacts\submission_pose_motion_blend.csv `
+  --test-csv ..\Small-Model-Track\Testing\test_file\test.csv
+```
+
+Only upload when the validator prints `Submission is valid`. The upload file is
+`artifacts\submission_pose_motion_blend.csv`; checkpoints are not uploaded.
+
+### Public leaderboard follow-up
+
+This submission scored `0.41791`, lower than the prior public score `0.42786`.
+Do not retune the 0.25/0.75 blend against this result. The cross-fitted local
+gain remains strong, while the public difference is only 0.00995 (roughly four
+clips if all 405 test clips were public). Preserve the prior submission as the
+public-LB safe pick and this blend as the CV pick until a missingness-stress
+diagnostic provides stronger evidence.
+
+
+### Difficult actions and user analysis
+
+The following results are all from five-fold OOF: each user's samples are predicted only by models that have not seen that user.
+
+The changes for difficult actions are not consistent:
+
+| Action | Baseline | Gating Model | Final Ensemble |
+|---|---:|---:|---:|
+| Take and use tableware | 11/97 = 11.3% | 9/97 = 9.3% | 7/97 = 7.2% |
+| Write | 1/39 = 2.6% | 6/39 = 15.4% | 5/39 = 12.8% |
+| Make a phone call | 5/43 = 11.6% | 7/43 = 16.3% | 7/43 = 16.3% |
+| Take medicine | 13/72 = 18.1% | 9/72 = 12.5% | 9/72 = 12.5% |
+
+So the gating branch significantly improves `Write` and `Make a phone call`, but regresses on `Take and use tableware` and `Take medicine`. The overall improvement comes from accumulated gains across multiple actions, not all fine-grained hand actions becoming better.
+
+Across users, the final ensemble improves over baseline for 13 out of 18 held-out users, with 5 declining. Notable improvements include:
+
+- `user16`: 50.5% → 60.2%
+- `user9`: 42.8% → 51.9%
+- `user5`: 30.6% → 40.0%
+- `user4`: 42.0% → 46.9%
+
+Users that remain difficult include `user3` (35.6%), `user5` (40.0%), and `user23` (42.6%). The standalone gating model actually shows larger fold-to-fold fluctuation, but the cross-fitted ensemble results are better than baseline across all five folds, which is the primary basis for keeping the ensemble.
+
+## Missingness and input-quality stress validation
+
+The public-score gap makes robustness a diagnostic priority. This evaluation
+uses **only the labelled training manifest**: each fold checkpoint predicts its
+own held-out users, and each input degradation is applied only at evaluation
+time. It does not inspect test labels, tune to the public leaderboard, or
+replace the main OOF score.
+
+The `cuhkx-stress-test` command evaluates six conditions:
+
+| Condition | Intervention | What it diagnoses |
+| --- | --- | --- |
+| `none` | No change | The one-view held-out reference for this command |
+| `drop_thermal` | Mask Thermal and set its pixels to zero | Robustness if an otherwise-present Thermal stream is unavailable |
+| `drop_radar` | Mask Radar and set its features to zero | Reliance on Radar |
+| `drop_imu` | Mask IMU and set its features to zero | Reliance on IMU |
+| `drop_skeleton` | Mask Skeleton and set its features to zero | Reliance on pose |
+| `visual_first_frame` | Repeat the first sampled visual frame across time | Sensitivity to loss of visual temporal information |
+
+`affected_accuracy` is calculated only on clips that originally had the
+intervened modality (or any visual modality for `visual_first_frame`). This
+avoids falsely treating a clip whose modality was already missing as an
+additional stress-test sample. These are intentionally severe, controlled
+counterfactuals: they estimate relative dependence, not the exact corruption
+rate of Kaggle test data.
+
+Run the baseline first. Cached sensor features must already exist; this command
+does not train or overwrite checkpoints.
+
+```powershell
+cd C:\Users\dynam\Documents\CUHK-X\har-solution
+
+uv run cuhkx-stress-test `
+  --checkpoints `
+    artifacts\cv5_synced_flip_imu_dropout\fold_0\best.pt `
+    artifacts\cv5_synced_flip_imu_dropout\fold_1\best.pt `
+    artifacts\cv5_synced_flip_imu_dropout\fold_2\best.pt `
+    artifacts\cv5_synced_flip_imu_dropout\fold_3\best.pt `
+    artifacts\cv5_synced_flip_imu_dropout\fold_4\best.pt `
+  --manifest manifests\cv5\train.csv `
+  --data-root ..\Small-Model-Track\Training\extracted\HAR\data `
+  --cache-dir cache-64 `
+  --output artifacts\cv5_synced_flip_imu_dropout\stress_report.json
+```
+
+Then run the same controlled cases for the pose-motion model.
+
+```powershell
+uv run cuhkx-stress-test `
+  --checkpoints `
+    artifacts\cv5_pose_motion_residual\fold_0\best.pt `
+    artifacts\cv5_pose_motion_residual\fold_1\best.pt `
+    artifacts\cv5_pose_motion_residual\fold_2\best.pt `
+    artifacts\cv5_pose_motion_residual\fold_3\best.pt `
+    artifacts\cv5_pose_motion_residual\fold_4\best.pt `
+  --manifest manifests\cv5\train.csv `
+  --data-root ..\Small-Model-Track\Training\extracted\HAR\data `
+  --cache-dir cache-64 `
+  --output artifacts\cv5_pose_motion_residual\stress_report.json
+```
+
+For a quick diagnosis of the two shifts most relevant to the competition, add
+`--stresses none drop_thermal drop_radar`. Use the full six-case run before a
+major architecture change.
+
+### How to read the reports
+
+Each JSON report contains pooled counts plus the result for every held-out
+fold. First confirm that `pooled.none.accuracy` closely reproduces that
+family's ordinary one-view OOF result. Then calculate the absolute drop
+`none.accuracy - <condition>.accuracy`, and compare the same condition between
+the two model families.
+
+* A large `drop_thermal` or `drop_radar` drop shows a likely weakness if that
+  modality is unavailable or malformed; inspect the individual folds before
+  deciding whether a training change is justified.
+* A large `visual_first_frame` drop means the model uses visual motion; this is
+  useful information, but is not by itself a defect.
+* Prefer a change only if it reduces the relevant stress drop **without
+  degrading normal cross-user OOF**, and re-run the cross-fitted blend audit.
+* Do not select a model, condition, or blend weight from the public leaderboard
+  alone. Record the JSON metrics in `docs/EXPERIMENTS.md` after running them.

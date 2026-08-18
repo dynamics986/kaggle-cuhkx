@@ -1,3 +1,4 @@
+
 # July 19 training commands
 
 Run commands from:

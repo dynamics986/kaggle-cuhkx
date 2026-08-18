@@ -1,0 +1,5 @@
+clip_id,label,user,fold
+a,0,user1,0
+b,1,user1,0
+c,0,user2,1
+d,1,user2,1

@@ -1,6 +1,7 @@
+
 # Experiment log
 
-## Current protocol and in-progress experiment (2026-07-25)
+## Current experiment (updated 2026-07-26)
 
 All new model decisions use the frozen five-fold subject-held-out manifest at
 `manifests/cv5/train.csv` with seed `20260719`.  The reported selection metric
@@ -32,6 +33,34 @@ accuracy was `0.44626` after 71.8 minutes. This fails the pre-registered
 fold-2 gate of `0.48333` (the current five-fold baseline on the same fold), so
 the candidate is rejected for now. Do not train its remaining four folds and do
 not use it in an ensemble.
+
+### Pose + motion residual gate (2026-07-26)
+
+The gated pose-plus-motion Skeleton encoder completed the frozen five-fold CV.
+Its standalone OOF clip accuracy was `0.48650` (1,477/3,036), a `+0.01318`
+improvement over the synced-flip + IMU-device-dropout baseline (`0.47332`).
+The 0.25 baseline / 0.75 residual common-weight blend achieved pooled OOF
+`0.50198` (1,524/3,036). More importantly, leave-one-fold-out weight selection
+produced cross-fitted OOF `0.49736` (1,510/3,036), improving every held-out
+fold. The ten-checkpoint inference ensemble is 51.7 MB and is approved for a
+validated Kaggle submission.
+
+### Public leaderboard check: pose-motion blend (2026-07-26)
+
+The validated 0.25 baseline / 0.75 residual submission scored `0.41791` on the
+public leaderboard, versus `0.42786` for the prior submission. This is a
+`-0.00995` change despite a `+0.02404` cross-fitted CV gain. Treat it as a
+weak distribution/noise signal, not as a reason to select future models on the
+public leaderboard: if the public set were all 405 clips, the difference is
+approximately four predictions. The previous submission remains the current
+public-LB safe pick; the pose-motion blend remains the local-CV pick pending
+further robustness checks.
+
+The next diagnostic is a modality-availability audit and a missingness-stress
+validation, not a public-score-driven weight search. Existing cache masks show
+test sensor patterns `110: 206`, `111: 198`, `100: 1`; their dominant patterns
+also occur in training. This rules out a wholly novel sensor-mask pattern but
+does not rule out visual quality or subject-distribution shift.
 
 ## Historical three-fold development record
 

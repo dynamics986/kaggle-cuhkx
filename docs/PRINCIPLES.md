@@ -24,13 +24,13 @@ Winning requires passing the post-competition code audit, reproducing results cl
            │                   SOLUTION ARCHITECTURE                   │
            └──────────────┬─────────────────────────────┬──────────────┘
                           │                             │
-    ┌─────────────────────▼─────┐         ┌─────────────▼─────────────┐
-    │  1. Model Architectures   │         │ 2. Augmentations & FE     │
-    │  • Backbone selection     │         │ • Domain-specific transforms│
-    │  • Temporal modeling      │         │ • Feature extraction      │
-    └─────────────────────┬─────┘         └─────────────┬─────────────┘
-                          │                             │
-                          └──────────────┬──────────────┘
+        ┌─────────────────────▼─────┐      ┌─────────────▼───────────────┐
+        │  1. Model Architectures   │      │ 2. Augmentations & FE       │
+        │  • Backbone selection     │      │ • Domain-specific transforms│
+        │  • Temporal modeling      │      │ • Feature extraction        │
+        └─────────────────────┬─────┘      └─────────────┬───────────────┘
+                              │                          │
+                              └──────────┬───────────────┘
                                          │
                            ┌─────────────▼─────────────┐
                            │   3. Generalization Proof │

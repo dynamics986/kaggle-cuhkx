@@ -5,6 +5,7 @@ description = "Leakage-safe lightweight multimodal HAR solution for the CUHK-X S
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
+  "matplotlib>=3.9",
   "numpy>=2.1",
   "pandas>=2.2",
   "pillow>=11.0",
@@ -24,6 +25,11 @@ cuhkx-predict = "cuhkx_har.predict:main"
 cuhkx-check-submission = "cuhkx_har.submission:main"
 cuhkx-ensemble-oof = "cuhkx_har.ensemble_oof:main"
 cuhkx-cv-report = "cuhkx_har.cv:main"
+cuhkx-stress-test = "cuhkx_har.stress:main"
+cuhkx-modality-train = "cuhkx_modality.train:main"
+cuhkx-modality-report = "cuhkx_modality.report:main_report"
+cuhkx-modality-summary = "cuhkx_modality.report:main_summary"
+cuhkx-modality-plot = "cuhkx_modality.plot:main"
 
 [dependency-groups]
 dev = [
@@ -45,7 +51,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/cuhkx_har"]
+packages = ["src/cuhkx_har", "src/cuhkx_modality"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

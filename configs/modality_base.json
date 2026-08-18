@@ -5,19 +5,17 @@
   "sensor_steps": 64,
   "width_mult": 1.0,
   "d_model": 192,
-  "fusion_layers": 2,
-  "fusion_heads": 4,
-  "horizontal_flip_probability": 0.5,
+  "temporal_pooling": "mean",
   "dropout": 0.15,
-  "modality_dropout": 0.15,
+  "horizontal_flip_probability": 0.5,
   "batch_size": 16,
   "grad_accum_steps": 1,
   "num_workers": 4,
-  "epochs": 1,
+  "epochs": 40,
   "learning_rate": 0.0004,
   "weight_decay": 0.03,
   "label_smoothing": 0.08,
   "class_balance_power": 0.0,
   "amp": true,
-  "early_stopping_patience": 1
+  "early_stopping_patience": 8
 }

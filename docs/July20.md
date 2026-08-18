@@ -1,28 +1,28 @@
-# CUHK-X HAR：三折结果与后续改进
 
-## 当前结论
+# CUHK-X HAR: Three-Fold Results and Next Improvements
 
-Synchronized-flip 的三个 subject-disjoint folds 已训练完成：
+## Current Conclusions
 
-| Fold | 验证用户 | 最佳 epoch | 停止 epoch | 验证准确率 |
+The three subject-disjoint folds of Synchronized-flip have been trained:
+
+| Fold | Validation Users | Best Epoch | Stopped Epoch | Validation Accuracy |
 | --- | --- | ---: | ---: | ---: |
 | 0 | user2, user7, user16, user20, user21, user23 | 24 | 32 | 0.50823 |
 | 1 | user1, user4, user6, user9, user18, user22 | 37 | 38 | 0.45798 |
 | 2 | user3, user5, user8, user17, user19, user24 | 11 | 19 | 0.44080 |
 
-三折共有 3,036 个 held-out 训练 clip，正确 1,422 个：
+Across three folds, 3,036 held-out training clips, with 1,422 correct:
 
 ```text
 OOF micro accuracy = 0.46838
-三折 accuracy 平均 = 0.46900
+Three-fold accuracy average = 0.46900
 ```
 
-fold 0 明显比 fold 1/2 容易。后续不能再以 fold 0 单独决定模型，必须报告三折 OOF
-或三折平均值。不要为了提高分数而重新划分更容易的验证用户。
+Fold 0 is noticeably easier than folds 1/2. From now on, fold 0 alone cannot be used to make model decisions; three-fold OOF or three-fold average must be reported. Do not re-partition to create easier validation users solely to boost scores.
 
-## 困难用户
+## Difficult Users
 
-| 用户 | Fold | Clip 数 | Accuracy |
+| User | Fold | Number of Clips | Accuracy |
 | --- | ---: | ---: | ---: |
 | user5 | 2 | 160 | 0.33125 |
 | user4 | 1 | 143 | 0.36364 |
@@ -30,12 +30,11 @@ fold 0 明显比 fold 1/2 容易。后续不能再以 fold 0 单独决定模型�
 | user3 | 2 | 163 | 0.38650 |
 | user1 | 1 | 153 | 0.43137 |
 
-这说明主要风险是跨主体泛化，不是模型容量不足。训练准确率较高而新用户准确率较低时，继续加宽
-模型通常只会加剧过拟合。
+This indicates the primary risk is cross-subject generalization, not insufficient model capacity. When training accuracy is high but accuracy on new users is low, continuing to widen the model usually only exacerbates overfitting.
 
-## 困难动作
+## Difficult Actions
 
-| 动作 | Clip 数 | 涉及用户数 | OOF Accuracy |
+| Action | Number of Clips | Users Involved | OOF Accuracy |
 | --- | ---: | ---: | ---: |
 | Play games | 40 | 6 | 0.00000 |
 | Watch TV | 12 | 3 | 0.00000 |
@@ -47,7 +46,7 @@ fold 0 明显比 fold 1/2 容易。后续不能再以 fold 0 单独决定模型�
 | Write | 39 | 11 | 0.15385 |
 | Take body temperature | 57 | 13 | 0.15789 |
 
-主要混淆包括：
+Primary confusions include:
 
 ```text
 Take/use tableware -> Pour drinks
@@ -57,26 +56,23 @@ Turn pages -> Read documents
 Sit down -> Stand up
 ```
 
-前四类错误需要更强的小物体和精细手部视觉特征；Sit down/Stand up 需要更明确的时间方向。
+The first four categories require stronger small-object and fine-grained hand visual features; Sit down/Stand up require clearer temporal directionality.
 
-## 实验解释限制
+## Experimental Interpretation Limitations
 
-Synchronized-flip 使用修复后的 IMU 缓存；早期 Base、Clean Base、Balanced、Graph 和 Motion
-checkpoint 使用旧缓存。因此它们不是完全严格的单变量对照。当前没有发现
-`artifacts/base_fixed_cache`，需要在修复后的缓存上训练 no-flip Base，才能隔离同步翻转的真实
-贡献。
+Synchronized-flip uses the repaired IMU cache; earlier Base, Clean Base, Balanced, Graph, and Motion checkpoints use the old cache. Therefore they are not strictly controlled univariate comparisons. Currently there is no `artifacts/base_fixed_cache`, so a no-flip Base needs to be trained on the repaired cache before the true contribution of synchronous flipping can be isolated.
 
-旧 IMU 解析器会在设备缺失时压紧剩余设备，导致设备身份错位。现在固定槽位顺序为：
+The old IMU parser would compress remaining devices when a device was missing, causing device identity misalignment. The fixed slot order is now:
 
 ```text
 WTC, WTLA, WTLL, WTRA, WTRL
 ```
 
-在 2,863 个有 IMU 的训练 clip 中，78 个缺少至少一个设备。当前 `cache-64` 已按固定槽位重建。
+Among 2,863 training clips with IMU data, 78 are missing at least one device. The current `cache-64` has been rebuilt with fixed slots.
 
-## 第一优先级：Visual V2
+## First Priority: Visual V2
 
-原始视觉分辨率通常是：
+Original visual resolutions are typically:
 
 ```text
 Depth_Color: 640 x 480
@@ -84,24 +80,24 @@ IR:          640 x 480
 Thermal:     320 x 240
 ```
 
-当前输入为 128 x 128、每模态 8 帧，并使用 `ImageOps.fit` 将 4:3 图像中心裁成正方形。
-这可能裁掉左右区域，也容易丢失手机、药物、书页和餐具等小物体。
+Current input is 128 x 128, 8 frames per modality, using `ImageOps.fit` to center-crop the 4:3 image into a square.
+This may crop off left/right regions, and tends to lose small objects such as phones, medicine, book pages, and tableware.
 
-Visual V2 计划：
+Visual V2 plan:
 
-1. 用 letterbox/padding 保留完整 4:3 画面，不做中心裁剪。
-2. 图像分辨率提高到 192 x 192。
-3. 每个视觉模态从 8 帧增加到 12 帧。
-4. Depth_Color、IR、Thermal 使用相同的相对时间采样位置，减少跨模态时间错位。
-5. 保持训练/验证用户严格分离，所有标准化统计只来自当前 fold 的训练用户。
+1. Use letterbox/padding to preserve the full 4:3 image without center cropping.
+2. Increase image resolution to 192 x 192.
+3. Increase each visual modality from 8 frames to 12 frames.
+4. Use the same relative temporal sampling positions for Depth_Color, IR, and Thermal to reduce cross-modal temporal misalignment.
+5. Keep strict separation of training/validation users; all normalization statistics are computed only from training users of the current fold.
 
-实测 Visual V2 峰值显存约 2.19 GB，RTX 5060 Laptop 8 GB 可以稳定运行。模型文件大小
-基本不受输入分辨率影响；三个 fold 实测分别耗时 76.1、53.7、46.2 分钟。
+Measured peak GPU memory for Visual V2 is about 2.19 GB, and RTX 5060 Laptop 8 GB can run it stably.
+Model file size is essentially unaffected by input resolution; the three folds took 76.1, 53.7, and 46.2 minutes respectively.
 
-## 第二优先级：保留动作时间方向
+## Second Priority: Preserve Action Temporal Direction
 
-当前 `TemporalEncoder` 最后对时间维直接求平均，容易弱化“坐下”和“站起”的先后区别。
-建议把时间汇聚改为：
+The current `TemporalEncoder` directly averages over the temporal dimension at the end, which tends to weaken the sequential distinction between "sit down" and "stand up."
+It is recommended to change the temporal aggregation to:
 
 ```text
 mean feature
@@ -110,48 +106,46 @@ mean feature
 -> lightweight projection
 ```
 
-`last - first` 显式保留动作方向，预计能帮助：
+`last - first` explicitly preserves action direction and is expected to help with:
 
 ```text
 Sit down <-> Stand up
 Squat <-> Sit down
-Pick up <-> Put down 类动作
+Pick up <-> Put down and similar actions
 ```
 
-## 第三优先级：原始姿态 + Motion 残差分支
+## Third Priority: Raw Pose + Motion Residual Branch
 
-Motion-TCN 单模没有超过 Base，但与 Base 的错误具有互补性。下一版不应完全替换原始骨架分支，
-而应使用：
+Motion-TCN alone did not exceed Base, but its errors are complementary to Base's errors. In the next version, the raw skeleton branch should not be completely replaced; instead, use:
 
 ```text
-原始姿态 TCN -----------+
-                        +-> 可学习门控/残差融合
-速度与加速度 TCN -------+
+Raw Pose TCN -----------+
+                        +-> Learnable gating/residual fusion
+Velocity & Acceleration TCN -------+
 ```
 
-门控初始偏向原始姿态，让模型只在验证证据支持时增加 motion 特征权重。
+Initialize gating to favor the raw pose, so that the model increases motion feature weights only when validation evidence supports it.
 
-## 类别平衡策略
+## Class Balancing Strategy
 
-`class_balance_power=0.5` 已经降低总体 clip accuracy，暂时不要继续使用强平衡采样。
-Visual V2 完成后如果少数类仍然很差，可以测试：
+`class_balance_power=0.5` has already reduced overall clip accuracy, so do not continue using strong balanced sampling for now.
+After Visual V2 is completed, if minority classes remain very poor, test:
 
 ```json
 "class_balance_power": 0.25
 ```
 
-Watch TV 只有 12 个 clip、来自 3 个用户。采样权重不能创造新的主体多样性，因此类别平衡不是
-当前最优先改进。
+Watch TV has only 12 clips from 3 users. Sampling weights cannot create new subject diversity, so class balancing is not the highest-priority improvement right now.
 
-## 新实验的评估顺序
+## Evaluation Order for New Experiments
 
-1. 先在最困难的 fold 2 筛选新配置。
-2. fold 2 相对当前 0.44080 明确提升至少 0.02-0.03，再训练 fold 1。
-3. fold 1 也提高，再训练 fold 0。
-4. 最终以三折 OOF/平均值决定是否保留，不挑选最好看的单一 fold。
-5. 同一阶段只改变一组相关因素，并在 `EXPERIMENTS.md` 记录配置、结果和否决原因。
+1. First screen new configurations on the hardest fold 2.
+2. Once fold 2 shows a clear improvement of at least 0.02-0.03 relative to the current 0.44080, then train fold 1.
+3. If fold 1 also improves, then train fold 0.
+4. The final decision to keep a configuration is based on three-fold OOF/average, not on the best-looking single fold.
+5. Change only one related set of factors per stage, and record the configuration, results, and rejection reasons in `EXPERIMENTS.md`.
 
-当前建议的下一次实验是：
+The currently recommended next experiment is:
 
 ```text
 Visual V2
@@ -162,19 +156,19 @@ Visual V2
 + mean/max/last-first temporal pooling
 ```
 
-先运行 fold 2，预计约 1-2 小时，不属于 8-12 小时通宵交叉验证。
+Run fold 2 first, expected to take about 1-2 hours, not an 8-12 hour overnight cross-validation run.
 
-## Visual V2 已完成结果（2026-07-20）
+## Visual V2 Completed Results (2026-07-20)
 
-本轮已经实现并验证：
+In this round, the following have been implemented and validated:
 
-1. 视觉输入改为 192 x 192 letterbox，保留完整 4:3 画面。
-2. 每个视觉模态从 8 帧增加到 12 帧。
-3. Depth_Color、IR、Thermal 在一个样本内共享相对时间采样位置。
-4. 时序汇聚使用 `mean + max + last - first`，再投影回原特征维度。
-5. 训练时仍使用同步多模态水平翻转，并保持固定 IMU 设备槽位。
+1. Visual input changed to 192 x 192 letterbox, preserving the full 4:3 image.
+2. Each visual modality increased from 8 frames to 12 frames.
+3. Depth_Color, IR, and Thermal share relative temporal sampling positions within a single sample.
+4. Temporal aggregation uses `mean + max + last - first`, then projects back to the original feature dimension.
+5. Synchronized multi-modal horizontal flipping is still used during training, and fixed IMU device slots are maintained.
 
-模型大小为 6.26 MB、参数量 1,630,488，远低于 100 MB 限制。单模型结果为：
+Model size is 6.26 MB, with 1,630,488 parameters, well below the 100 MB limit. Single-model results:
 
 | Fold | Synced Flip | Visual V2 | Visual V2 best epoch |
 | --- | ---: | ---: | ---: |
@@ -183,32 +177,27 @@ Visual V2
 | 2 | 0.44080 | 0.45373 | 11 |
 | OOF | 0.46838 | 0.46014 | — |
 
-Visual V2 单独没有超过 Synced Flip，但错误具有稳定互补性。使用所有三折共同选择的统一权重：
+Visual V2 alone does not exceed Synced Flip, but its errors have stable complementarity. Using unified weights selected jointly across all three folds:
 
 ```text
 Synced Flip: 0.575
 Visual V2:   0.425
 ```
 
-得到：
+Yields:
 
-| Fold | Synced Flip | 统一权重融合 | 提升 |
+| Fold | Synced Flip | Unified-Weight Ensemble | Improvement |
 | --- | ---: | ---: | ---: |
 | 0 | 0.50823 | 0.53395 | +0.02572 |
 | 1 | 0.45798 | 0.48347 | +0.02550 |
 | 2 | 0.44080 | 0.47065 | +0.02985 |
 | OOF | 0.46838 | **0.49539** | **+0.02701** |
 
-总计从 1,422/3,036 个正确提升到 1,504/3,036 个正确，多 82 个 clip。候选权重
-0.40、0.425、0.45、0.475 的 OOF 都在 0.4937-0.4954，说明收益不是只存在于一个尖锐权重点。
-选择 0.425 是三折 pooled OOF 的统一结果，没有为每个 fold 分别调权，也没有使用测试标签。
+Total improved from 1,422/3,036 correct clips to 1,504/3,036 correct clips, an additional 82 clips. Candidate weights of 0.40, 0.425, 0.45, and 0.475 all give OOF scores in the 0.4937-0.4954 range, indicating the gain is not confined to a single sharp weight point. The choice of 0.425 is the unified result from pooled three-fold OOF, not tuned per fold and not using test labels.
 
-类别层面最明显的改善是 `Sit down`：0.6190 提高到 0.8299，多识别对 31 个样本。这与
-`last - first` 保留动作方向的设计目标一致。`Do jumping jacks`、`Wipe bowls`、`Stir drinks`、
-`Check the time` 也有提升。当前仍需重点解决 `Make a phone call`、`Write`、`Take medicine`、
-`Take and use tableware` 等小物体或细粒度手部动作；融合后这些类别没有改善或略有下降。
+At the class level, the most noticeable improvement is for `Sit down`: from 0.6190 to 0.8299, with 31 more samples correctly recognized. This aligns with the design goal of `last - first` preserving action direction. `Do jumping jacks`, `Wipe bowls`, `Stir drinks`, and `Check the time` also improved. Current critical issues remain for `Make a phone call`, `Write`, `Take medicine`, and `Take and use tableware` — small objects or fine-grained hand actions; these categories did not improve or slightly degraded after fusion.
 
-复现权重扫描：
+Reproduce the weight scan:
 
 ```powershell
 uv run cuhkx-ensemble-oof `
@@ -217,29 +206,25 @@ uv run cuhkx-ensemble-oof `
   --steps 40 --output artifacts\visual_v2\oof_ensemble_scan.json
 ```
 
-### 为什么保留而不是替代旧模型
+### Why Keep Rather Than Replace the Old Model
 
-新视觉设置改善了部分依赖完整画面、小物体或动作方向的类别，但在 fold 1 上更容易过拟合。
-因此当前正确用法是把它作为具有不同错误模式的第二模型家族，而不是直接替换 Synced Flip。
-统一融合在三个 fold 上全部提升，比只看某一个 fold 的最好结果可靠。
+The new visual settings improve some categories that rely on full-frame information, small objects, or action direction, but overfit more easily on fold 1.
+Therefore the current correct usage is to treat it as a second model family with a different error pattern, rather than directly replacing Synced Flip.
+The unified ensemble improves across all three folds, which is more reliable than looking at the best result from a single fold.
 
-### 下一项建议
+### Next Recommended Item
 
-下一项低风险实验应是对 Visual V2 加强正则化，而不是继续增加参数：训练准确率后期达到约
-90%，跨用户验证仍明显较低，容量不是主要瓶颈。优先只在 fold 2 测试较高 dropout/weight decay，
-或实现“原始姿态 + Motion 残差门控”；新实验必须继续与当前 0.49539 OOF 融合基线比较。
+The next low-risk experiment should be to strengthen regularization for Visual V2, rather than continuing to increase parameters: training accuracy reaches about 90% in later epochs, while cross-user validation remains noticeably lower, so capacity is not the primary bottleneck. Prioritize testing higher dropout/weight decay, or implement the "raw pose + Motion residual gating" only on fold 2 first; new experiments must continue to be compared against the current 0.49539 OOF ensemble baseline.
 
-## 最终提交训练策略
+## Final Submission Training Strategy
 
-交叉验证用于选择架构，不能把 fold 0 的最好分数当作测试集预估。架构确定后，应增加“全部训练
-用户”模式：
+Cross-validation is used for architecture selection; fold 0's best score cannot be used as a test-set estimate. Once the architecture is determined, enable a "full training users" mode:
 
-1. 使用全部 18 个有标签训练用户。
-2. 不再使用测试集或测试统计量。
-3. 根据三个 folds 的最佳 epoch 决定固定训练轮数，而不是查看测试表现。
-4. 用多个随机种子训练全数据模型。
-5. 对全数据模型和经过验证的 fold 模型做概率集成。
-6. 模型总大小必须保持在 100 MB 以内。
+1. Use all 18 labeled training users.
+2. Do not use the test set or test statistics any further.
+3. Determine the fixed number of training epochs based on the best epochs from the three folds, without looking at test performance.
+4. Train full-data models with multiple random seeds.
+5. Ensemble the full-data models and the validated fold models at the probability level.
+6. Total model size must remain within 100 MB.
 
-这可以让正式模型利用全部标注用户，同时保持无数据泄漏。最终测试推理、CSV 校验和 Kaggle 上传
-由参赛者本人执行。
+This allows the final model to leverage all labeled users while avoiding data leakage. Final test inference, CSV validation, and Kaggle submission are to be performed by the participant themselves.

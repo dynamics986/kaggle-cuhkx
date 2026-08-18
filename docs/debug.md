@@ -1,4 +1,5 @@
-# Debug Tools
+
+## Debug Tools
 
 To monitor the training process:
 ```powershell

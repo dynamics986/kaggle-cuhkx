@@ -43,7 +43,10 @@ class ExperimentConfig:
             (self.skeleton_graph, self.skeleton_motion, self.skeleton_motion_residual)
         )
         if skeleton_modes > 1:
-            raise ValueError("skeleton_graph, skeleton_motion, and skeleton_motion_residual are exclusive")
+            raise ValueError(
+                "skeleton_graph, skeleton_motion, and skeleton_motion_residual "
+                "are mutually exclusive"
+            )
         if not 0 <= self.horizontal_flip_probability <= 1:
             raise ValueError("horizontal_flip_probability must be in [0, 1]")
         if self.temporal_pooling not in {"mean", "directional"}:

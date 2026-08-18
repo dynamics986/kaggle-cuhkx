@@ -78,9 +78,3 @@ uv run cuhkx-check-submission `
 
 The file must have exactly `path,prediction`, preserve official test-row order,
 and contain integer labels from 0 to 39.
-
-## Historical record
-
-Earlier three-fold experiments, rejected architectures, and their scores are
-intentionally not presented as the current solution.  They are retained in
-[`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) for reproducibility and audit.
