@@ -1,9 +1,34 @@
+# Python environments, bytecode, and tool caches
 .venv/
 __pycache__/
 .pytest_cache/
+.pytest-tmp/
 .ruff_cache/
-artifacts/
-cache/
-manifests/
-*.pyc
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.py[cod]
+*.egg-info/
 
+# uv-managed local downloads and temporary Python installations
+.uv-cache/
+.uv-python/
+
+# Generated training outputs: checkpoints, logs, curves, reports, and submissions
+artifacts/
+
+# Downloaded detector/checkpoint weights
+*.pt
+
+# Rebuildable feature caches. Keep source data outside this repository.
+cache/
+cache-64/
+cache-64-synced-points/
+
+# Generated dataset manifests may contain machine-specific absolute paths.
+manifests/
+
+# OS file-manager metadata
+Thumbs.db
+.DS_Store

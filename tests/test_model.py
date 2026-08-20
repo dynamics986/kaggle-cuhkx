@@ -4,7 +4,7 @@ import torch
 
 from cuhkx_har.config import ExperimentConfig
 from cuhkx_har.features import IMU_FEATURES, RADAR_FEATURES, SKELETON_FEATURES, SKELETON_JOINTS
-from cuhkx_har.model import MultimodalHAR, parameter_size_mb
+from cuhkx_har.model import IMUDeviceCNNRelativeTransformerEncoder, MultimodalHAR, parameter_size_mb
 
 
 def test_scalable_model_forward_and_size() -> None:
@@ -33,6 +33,24 @@ def test_scalable_model_forward_and_size() -> None:
     output = model(batch)
     assert output.shape == (2, 40)
     assert parameter_size_mb(model) < 100
+
+
+def test_legacy_tcn_state_dict_remains_strictly_loadable() -> None:
+    old_config = {
+        "image_size": 64,
+        "visual_frames": 2,
+        "sensor_steps": 8,
+        "width_mult": 0.5,
+        "d_model": 64,
+        "fusion_layers": 1,
+        "fusion_heads": 4,
+        "batch_size": 1,
+        "num_workers": 0,
+        "epochs": 1,
+    }
+    legacy = MultimodalHAR(ExperimentConfig(**old_config))
+    restored = MultimodalHAR(ExperimentConfig(**old_config))
+    restored.load_state_dict(legacy.state_dict(), strict=True)
 
 
 def test_graph_skeleton_encoder_forward() -> None:
@@ -117,6 +135,39 @@ def test_skeleton_encoder_modes_are_exclusive() -> None:
         assert "mutually exclusive" in str(error)
     else:
         raise AssertionError("Expected mutually exclusive skeleton modes to fail")
+
+
+def test_device_aware_imu_transformer_forward_handles_missing_devices() -> None:
+    config = ExperimentConfig(
+        image_size=64,
+        visual_frames=2,
+        sensor_steps=8,
+        width_mult=0.5,
+        d_model=64,
+        fusion_layers=1,
+        fusion_heads=4,
+        imu_encoder="device_cnn_rel_transformer",
+        imu_structured_cache_dir="structured-cache",
+        batch_size=2,
+        num_workers=0,
+        epochs=1,
+    )
+    model = MultimodalHAR(config).eval()
+    assert isinstance(model.imu_encoder, IMUDeviceCNNRelativeTransformerEncoder)
+    assert not hasattr(model, "radar_pointnet")
+    imu = torch.randn(2, 8, 5, 17)
+    imu[..., -1] = 1
+    imu[0, :, :, -1] = 0
+    batch = {
+        "visual": torch.randn(2, 3, 2, 3, 64, 64),
+        "skeleton": torch.randn(2, 8, SKELETON_JOINTS * SKELETON_FEATURES),
+        "imu": imu,
+        "radar": torch.randn(2, 8, RADAR_FEATURES),
+        "modality_mask": torch.ones(2, 6, dtype=torch.bool),
+    }
+    output = model(batch)
+    assert output.shape == (2, 40)
+    assert torch.isfinite(output).all()
 
 
 def test_horizontal_flip_probability_is_validated() -> None:

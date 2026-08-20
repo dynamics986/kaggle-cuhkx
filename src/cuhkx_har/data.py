@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import random
 from pathlib import Path
 from typing import Any
@@ -85,10 +86,37 @@ def _has_path(value: object) -> bool:
 def resize_visual(image: Image.Image, image_size: int, preserve_aspect_ratio: bool) -> Image.Image:
     size = (image_size, image_size)
     if preserve_aspect_ratio:
-        return ImageOps.pad(
-            image, size, method=Image.Resampling.BILINEAR, color=(0, 0, 0)
-        )
+        return ImageOps.pad(image, size, method=Image.Resampling.BILINEAR, color=(0, 0, 0))
     return ImageOps.fit(image, size, method=Image.Resampling.BILINEAR)
+
+
+def flip_normalized_bbox(
+    bbox: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    """Mirror an xyxy normalized rectangle; useful for geometry audits."""
+    left, top, right, bottom = bbox
+    return (1.0 - right, top, 1.0 - left, bottom)
+
+
+def crop_person(
+    image: Image.Image, bbox: tuple[float, float, float, float], padding: float
+) -> Image.Image:
+    """Crop a normalized xyxy person box with bounded proportional padding."""
+    left, top, right, bottom = bbox
+    width, height = max(right - left, 1e-6), max(bottom - top, 1e-6)
+    left, right = max(0.0, left - width * padding), min(1.0, right + width * padding)
+    top, bottom = max(0.0, top - height * padding), min(1.0, bottom + height * padding)
+    if right <= left or bottom <= top:
+        return image
+    image_width, image_height = image.size
+    return image.crop(
+        (
+            int(round(left * image_width)),
+            int(round(top * image_height)),
+            max(int(round(right * image_width)), 1),
+            max(int(round(bottom * image_height)), 1),
+        )
+    )
 
 
 class MultimodalDataset(Dataset[dict[str, Any]]):
@@ -109,6 +137,11 @@ class MultimodalDataset(Dataset[dict[str, Any]]):
         preserve_aspect_ratio: bool = False,
         shared_visual_sampling: bool = False,
         imu_device_dropout: float = 0.0,
+        visual_crop_mode: str = "none",
+        visual_crop_metadata_path: str | Path | None = None,
+        visual_crop_padding: float = 0.12,
+        imu_encoder: str = "tcn",
+        imu_structured_cache_dir: str | Path | None = None,
     ) -> None:
         self.manifest = manifest.reset_index(drop=True).fillna("")
         self.data_root = Path(data_root).resolve()
@@ -125,6 +158,25 @@ class MultimodalDataset(Dataset[dict[str, Any]]):
         self.preserve_aspect_ratio = preserve_aspect_ratio
         self.shared_visual_sampling = shared_visual_sampling
         self.imu_device_dropout = imu_device_dropout
+        self.visual_crop_mode = visual_crop_mode
+        self.visual_crop_padding = visual_crop_padding
+        self.imu_encoder = imu_encoder
+        self.imu_structured_cache_dir = (
+            Path(imu_structured_cache_dir).resolve() if imu_structured_cache_dir else None
+        )
+        if imu_encoder == "device_cnn_rel_transformer" and self.imu_structured_cache_dir is None:
+            raise ValueError("imu_structured_cache_dir is required for device_cnn_rel_transformer")
+        self.crop_metadata: dict[str, dict[str, Any]] = {}
+        if visual_crop_mode == "yolo_person":
+            if visual_crop_metadata_path is None:
+                raise ValueError("visual_crop_metadata_path is required for yolo_person")
+            metadata_path = Path(visual_crop_metadata_path)
+            if not metadata_path.is_file():
+                raise FileNotFoundError(f"Missing YOLO crop metadata: {metadata_path}")
+            payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+            if payload.get("schema_version") != 1:
+                raise ValueError(f"Unsupported crop metadata schema: {metadata_path}")
+            self.crop_metadata = payload["clips"]
 
     def __len__(self) -> int:
         return len(self.manifest)
@@ -182,6 +234,21 @@ class MultimodalDataset(Dataset[dict[str, Any]]):
             if image is None:
                 shape = (self.visual_frames, 3, self.image_size, self.image_size)
                 return torch.zeros(shape, dtype=torch.float32), False
+            if self.visual_crop_mode == "yolo_person":
+                clip = self.crop_metadata.get(str(row["clip_id"]))
+                if clip is None:
+                    raise KeyError(f"No crop metadata for clip {row['clip_id']}")
+                depth_frames = clip.get("frames", [])
+                if depth_frames:
+                    # IR/Thermal frame counts can differ from Depth_Color.  Map by relative time.
+                    mapped = int(
+                        round(int(index) * (len(depth_frames) - 1) / max(len(files) - 1, 1))
+                    )
+                    bbox = depth_frames[mapped].get("bbox")
+                    if bbox is not None:
+                        image = crop_person(
+                            image, tuple(float(x) for x in bbox), self.visual_crop_padding
+                        )
             image = resize_visual(image, self.image_size, self.preserve_aspect_ratio)
             if flip:
                 image = ImageOps.mirror(image)
@@ -218,9 +285,43 @@ class MultimodalDataset(Dataset[dict[str, Any]]):
             imu = cached["imu"].astype(np.float32)
             radar = cached["radar"].astype(np.float32)
             sensor_mask = cached["sensor_mask"].astype(np.bool_)
+        imu_device_mask: np.ndarray | None = None
+        if self.imu_encoder == "device_cnn_rel_transformer":
+            assert self.imu_structured_cache_dir is not None
+            structured_path = self.imu_structured_cache_dir / cache_key(
+                self.split, str(row["clip_id"])
+            )
+            if not structured_path.is_file():
+                raise FileNotFoundError(
+                    f"Missing structured IMU cache {structured_path}; rebuild cache-64-synced-points"
+                )
+            with np.load(structured_path) as cached:
+                required = ("imu_synced", "imu_device_mask")
+                if any(name not in cached for name in required):
+                    raise ValueError(
+                        "Structured IMU cache lacks imu_synced/imu_device_mask; "
+                        "rebuild cache-64-synced-points"
+                    )
+                imu = cached["imu_synced"].astype(np.float32)
+                imu_device_mask = cached["imu_device_mask"].astype(np.bool_)
+            if imu.shape != (self.sensor_steps, IMU_DEVICES, IMU_FEATURES_PER_DEVICE):
+                raise ValueError(
+                    f"Structured IMU shape {imu.shape} does not match "
+                    f"({self.sensor_steps}, {IMU_DEVICES}, {IMU_FEATURES_PER_DEVICE})"
+                )
+            if imu_device_mask.shape != (self.sensor_steps, IMU_DEVICES):
+                raise ValueError(
+                    f"Structured IMU mask shape {imu_device_mask.shape} does not match "
+                    f"({self.sensor_steps}, {IMU_DEVICES})"
+                )
+            sensor_mask[1] = bool(imu_device_mask.any())
         if flip:
             skeleton = flip_skeleton(skeleton)
-            imu = flip_imu_devices(imu)
+            if imu_device_mask is None:
+                imu = flip_imu_devices(imu)
+            else:
+                imu = imu[:, IMU_MIRROR_ORDER].copy()
+                imu_device_mask = imu_device_mask[:, IMU_MIRROR_ORDER].copy()
             radar = flip_radar(radar)
         skeleton = self._normalize("skeleton", skeleton)
         imu = self._normalize("imu", imu)
@@ -230,12 +331,23 @@ class MultimodalDataset(Dataset[dict[str, Any]]):
             # slot after normalization so missing-device robustness does not
             # alter normalization statistics or the inference data path.
             device = random.randrange(IMU_DEVICES)
-            start = device * IMU_FEATURES_PER_DEVICE
-            imu[:, start : start + IMU_FEATURES_PER_DEVICE] = 0.0
+            if imu_device_mask is None:
+                start = device * IMU_FEATURES_PER_DEVICE
+                imu[:, start : start + IMU_FEATURES_PER_DEVICE] = 0.0
+            else:
+                imu[:, device] = 0.0
+                imu_device_mask[:, device] = False
         if len(skeleton) != self.sensor_steps:
             skeleton = resample_sequence(skeleton, self.sensor_steps)
-            imu = resample_sequence(imu, self.sensor_steps)
+            if imu_device_mask is None:
+                imu = resample_sequence(imu, self.sensor_steps)
             radar = resample_sequence(radar, self.sensor_steps)
+
+        if imu_device_mask is not None:
+            imu = np.where(imu_device_mask[..., None], imu, 0.0)
+            imu = np.concatenate(
+                [imu, imu_device_mask[..., None].astype(np.float32)], axis=-1
+            )
 
         modality_mask = np.concatenate([np.asarray(visual_mask), sensor_mask])
         return {
@@ -251,13 +363,23 @@ class MultimodalDataset(Dataset[dict[str, Any]]):
 
 
 def compute_sensor_normalizer(
-    manifest: pd.DataFrame, cache_dir: str | Path, split: str = "train"
+    manifest: pd.DataFrame,
+    cache_dir: str | Path,
+    split: str = "train",
+    imu_encoder: str = "tcn",
+    imu_structured_cache_dir: str | Path | None = None,
 ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
     cache = Path(cache_dir)
+    structured_cache = Path(imu_structured_cache_dir) if imu_structured_cache_dir else None
+    if imu_encoder == "device_cnn_rel_transformer" and structured_cache is None:
+        raise ValueError("imu_structured_cache_dir is required for device_cnn_rel_transformer")
     names = ("skeleton", "imu", "radar")
     sums: dict[str, np.ndarray] = {}
     squares: dict[str, np.ndarray] = {}
     counts: dict[str, int] = {name: 0 for name in names}
+    structured_imu_sum: np.ndarray | None = None
+    structured_imu_squares: np.ndarray | None = None
+    structured_imu_count = 0
     for _, row in manifest.iterrows():
         with np.load(cache / cache_key(split, str(row["clip_id"]))) as item:
             mask = item["sensor_mask"]
@@ -269,6 +391,34 @@ def compute_sensor_normalizer(
                 current_squares = squares.get(name, np.zeros(values.shape[1]))
                 squares[name] = current_squares + np.square(values).sum(axis=0)
                 counts[name] += len(values)
+        if imu_encoder == "device_cnn_rel_transformer":
+            assert structured_cache is not None
+            path = structured_cache / cache_key(split, str(row["clip_id"]))
+            if not path.is_file():
+                raise FileNotFoundError(
+                    f"Missing structured IMU cache {path}; rebuild cache-64-synced-points"
+                )
+            with np.load(path) as cached:
+                if "imu_synced" not in cached or "imu_device_mask" not in cached:
+                    raise ValueError(
+                        "Structured IMU cache lacks imu_synced/imu_device_mask; "
+                        "rebuild cache-64-synced-points"
+                    )
+                values = cached["imu_synced"].astype(np.float64)
+                valid = cached["imu_device_mask"].astype(np.bool_)
+                values = values[valid]
+            if len(values):
+                structured_imu_sum = (
+                    values.sum(axis=0)
+                    if structured_imu_sum is None
+                    else structured_imu_sum + values.sum(axis=0)
+                )
+                structured_imu_squares = (
+                    np.square(values).sum(axis=0)
+                    if structured_imu_squares is None
+                    else structured_imu_squares + np.square(values).sum(axis=0)
+                )
+                structured_imu_count += len(values)
     result = {}
     for name in names:
         if counts[name] == 0:
@@ -276,4 +426,16 @@ def compute_sensor_normalizer(
         mean = sums[name] / counts[name]
         variance = np.maximum(squares[name] / counts[name] - np.square(mean), 1e-8)
         result[name] = (mean.astype(np.float32), np.sqrt(variance).astype(np.float32))
+    if imu_encoder == "device_cnn_rel_transformer":
+        if (
+            structured_imu_count == 0
+            or structured_imu_sum is None
+            or structured_imu_squares is None
+        ):
+            raise ValueError("No valid structured IMU samples in the training partition")
+        mean = structured_imu_sum / structured_imu_count
+        variance = np.maximum(
+            structured_imu_squares / structured_imu_count - np.square(mean), 1e-8
+        )
+        result["imu"] = (mean.astype(np.float32), np.sqrt(variance).astype(np.float32))
     return result

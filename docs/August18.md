@@ -118,3 +118,74 @@ uv run cuhkx-modality-plot `
 Earlier three-fold experiments, rejected architectures, and their scores are
 intentionally not presented as the current solution.  They are retained in
 [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) for reproducibility and audit.
+
+---
+
+## YOLOv8n 人体裁剪视觉预处理（CV gate）
+
+官网 Small Model Track 要求 CNN/RNN/Transformer 模型总大小不超过 100 MB，且
+**No large pretrained backbones**。因此本项目允许可审计的轻量预训练
+`yolov8n.pt`，但禁止大型预训练 backbone；最终 YOLO detector 与 HAR 推理
+ensemble 的权重总和仍必须不超过 100 MB。YOLO 只用于视觉预处理，不参与动作
+分类头。
+
+### 已记录的单模态结果
+
+冻结 CV5 下的 pooled subject-held-out OOF accuracy：Skeleton 0.4852，IMU
+0.2759，Depth_Color 0.2392，Thermal 0.2255，IR 0.1981，Radar 0.1852
+（Radar 有效预测 1,409）。这说明先在不改变 pose-motion residual 架构和训练
+预算的前提下降低视觉背景干扰，是一个可检验的下一步。
+
+### 800 张人工标注协议
+
+以下命令只从 `manifests/cv5/train.csv` 的 `Depth_Color` 训练帧中，以固定 seed
+`20260719` 确定性抽取 800 张。抽样先轮转覆盖 action × user，再覆盖 clip 的
+15%、50%、85% 时间位置。它生成不可变的 `annotation_manifest.csv`、图片和空的
+标签目录；不要改动图片或 manifest。
+
+```powershell
+$manifest = "manifests/cv5/train.csv"
+$dataRoot = "..\Small-Model-Track\Training\extracted\HAR\data"
+$annotationDir = "artifacts\yolo\annotations_800"
+
+uv sync
+uv run cuhkx-yolo-annotations `
+  --manifest $manifest `
+  --data-root $dataRoot `
+  --output-dir $annotationDir `
+  --count 800
+```
+
+用 LabelImg 打开 `$annotationDir\images`，设置唯一类别 `person`，选择 **YOLO**
+格式，并将 txt 保存到 `$annotationDir\labels`。每张图片至多一个 person bbox；确认
+画面中没有人时，不画框即可（没有对应 txt 或空 txt 都是有效的 YOLO 负样本）。绝不能
+打开、查看或标注 `Testing` 中的任何图片。完成后先审计；审计失败时先修正
+标签，不得开始微调：
+
+```powershell
+uv run cuhkx-yolo-audit-labels --annotation-dir $annotationDir
+```
+
+审计会检查图片与 manifest 的一一对应、类别恒为 0 (`person`)、bbox 为有限的归一化
+值且没有实质性越界，并记录正/负样本数与 manifest SHA-256。边界处 LabelImg 的微小
+十进制舍入误差会被接受；明显越界仍会被拒绝。
+LabelImg 自动生成的 `labels/classes.txt` 是类别元数据，会被审计忽略；不要将它当作
+某张图片的标签。
+
+### Cross-validation detector 与裁剪 metadata
+
+每个 fold 只能用该 fold **训练用户** 的人工标注帧微调 detector；held-out 用户的
+帧只可用于 detector 推理、overlay 人工检查和 HAR 验证。`detector_summary.json`
+会记录 YOLO 来源 (`COCO pretrained yolov8n.pt`)、Ultralytics 版本、许可证提示、
+权重大小、参数、manifest hash、训练用户与 held-out 用户。
+
+```powershell
+$yoloRoot = "artifacts\yolo"
+
+# 先只跑 fold 2。训练完成会得到 artifacts\yolo\detectors\fold_2\yolov8n_fold_2.pt
+uv run cuhkx-yolo-train `
+  --annotation-dir $annotationDir `
+  --manifest $manifest `
+  --output-dir "$yoloRoot\detectors" `
+  --fold 2 `
+  --epochs 60 --image-size 640 --batch 16 --device cuda

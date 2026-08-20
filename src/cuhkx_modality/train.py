@@ -6,7 +6,6 @@ import math
 import random
 import time
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -36,8 +35,13 @@ def seed_everything(seed: int) -> None:
 
 
 def run_epoch(
-    model: nn.Module, loader: DataLoader, criterion: nn.Module, device: torch.device, use_amp: bool,
-    optimizer: torch.optim.Optimizer | None = None, scaler: torch.amp.GradScaler | None = None,
+    model: nn.Module,
+    loader: DataLoader,
+    criterion: nn.Module,
+    device: torch.device,
+    use_amp: bool,
+    optimizer: torch.optim.Optimizer | None = None,
+    scaler: torch.amp.GradScaler | None = None,
     grad_accum_steps: int = 1,
 ) -> dict[str, float]:
     training = optimizer is not None
@@ -47,8 +51,14 @@ def run_epoch(
     loss_sum = 0.0
     correct = examples = 0
     for step, batch in enumerate(loader, start=1):
-        inputs, labels = batch["inputs"].to(device, non_blocking=True), batch["label"].to(device, non_blocking=True)
-        with torch.set_grad_enabled(training), torch.amp.autocast(device_type=device.type, enabled=use_amp):
+        inputs, labels = (
+            batch["inputs"].to(device, non_blocking=True),
+            batch["label"].to(device, non_blocking=True),
+        )
+        with (
+            torch.set_grad_enabled(training),
+            torch.amp.autocast(device_type=device.type, enabled=use_amp),
+        ):
             logits = model(inputs)
             raw_loss = criterion(logits, labels)
             loss = raw_loss / grad_accum_steps if training else raw_loss
@@ -69,24 +79,44 @@ def run_epoch(
 
 
 @torch.inference_mode()
-def validation_predictions(model: nn.Module, loader: DataLoader, device: torch.device, use_amp: bool) -> pd.DataFrame:
+def validation_predictions(
+    model: nn.Module, loader: DataLoader, device: torch.device, use_amp: bool
+) -> pd.DataFrame:
     model.eval()
     records: list[dict[str, object]] = []
     for batch in loader:
         clip_ids = list(batch["clip_id"])
-        inputs, labels = batch["inputs"].to(device, non_blocking=True), batch["label"].to(device, non_blocking=True)
+        inputs, labels = (
+            batch["inputs"].to(device, non_blocking=True),
+            batch["label"].to(device, non_blocking=True),
+        )
         with torch.amp.autocast(device_type=device.type, enabled=use_amp):
             probabilities = torch.softmax(model(inputs), dim=1).float().cpu().numpy()
         for index, clip_id in enumerate(clip_ids):
-            row: dict[str, object] = {"clip_id": clip_id, "label": int(labels[index]), "prediction": int(probabilities[index].argmax())}
-            row.update({f"prob_{label}": float(probabilities[index, label]) for label in range(NUM_CLASSES)})
+            row: dict[str, object] = {
+                "clip_id": clip_id,
+                "label": int(labels[index]),
+                "prediction": int(probabilities[index].argmax()),
+            }
+            row.update(
+                {
+                    f"prob_{label}": float(probabilities[index, label])
+                    for label in range(NUM_CLASSES)
+                }
+            )
             records.append(row)
     return pd.DataFrame(records)
 
 
 def train_fold(
-    config: ModalityConfig, modality: str, manifest_path: str | Path, data_root: str | Path,
-    cache_dir: str | Path, output_dir: str | Path, fold: int, device_name: str = "cuda",
+    config: ModalityConfig,
+    modality: str,
+    manifest_path: str | Path,
+    data_root: str | Path,
+    cache_dir: str | Path,
+    output_dir: str | Path,
+    fold: int,
+    device_name: str = "cuda",
     max_clips_per_class: int | None = None,
 ) -> Path:
     if modality not in MODALITIES:
@@ -101,26 +131,68 @@ def train_fold(
     if max_clips_per_class is not None:
         if max_clips_per_class <= 0:
             raise ValueError("max_clips_per_class must be positive")
-        train_frame = train_frame.sort_values("clip_id").groupby("label", group_keys=False).head(max_clips_per_class).reset_index(drop=True)
-        valid_frame = valid_frame.sort_values("clip_id").groupby("label", group_keys=False).head(max_clips_per_class).reset_index(drop=True)
+        train_frame = (
+            train_frame.sort_values("clip_id")
+            .groupby("label", group_keys=False)
+            .head(max_clips_per_class)
+            .reset_index(drop=True)
+        )
+        valid_frame = (
+            valid_frame.sort_values("clip_id")
+            .groupby("label", group_keys=False)
+            .head(max_clips_per_class)
+            .reset_index(drop=True)
+        )
     if train_frame.empty or valid_frame.empty:
         raise ValueError(f"{modality} has no usable training or validation clips in fold {fold}")
     output = Path(output_dir).resolve() / modality / f"fold_{fold}"
     output.mkdir(parents=True, exist_ok=True)
-    normalizer = compute_normalizer(train_frame, modality, cache_dir)
-    common = dict(modality=modality, data_root=data_root, cache_dir=cache_dir, image_size=config.image_size,
-                  visual_frames=config.visual_frames, sensor_steps=config.sensor_steps, normalizer=normalizer,
-                  horizontal_flip_probability=config.horizontal_flip_probability)
-    train_set, valid_set = ModalityDataset(train_frame, training=True, **common), ModalityDataset(valid_frame, training=False, **common)
+    normalizer = compute_normalizer(
+        train_frame, modality, cache_dir, sensor_encoder=config.sensor_encoder
+    )
+    common = dict(
+        modality=modality,
+        data_root=data_root,
+        cache_dir=cache_dir,
+        image_size=config.image_size,
+        visual_frames=config.visual_frames,
+        sensor_steps=config.sensor_steps,
+        normalizer=normalizer,
+        horizontal_flip_probability=config.horizontal_flip_probability,
+        visual_crop_mode=config.visual_crop_mode,
+        visual_crop_metadata_path=(
+            Path(config.visual_crop_metadata_root) / f"fold_{fold}" / "bboxes.json"
+            if config.visual_crop_mode == "yolo_person"
+            else None
+        ),
+        visual_crop_padding=config.visual_crop_padding,
+        sensor_encoder=config.sensor_encoder,
+    )
+    train_set, valid_set = (
+        ModalityDataset(train_frame, training=True, **common),
+        ModalityDataset(valid_frame, training=False, **common),
+    )
     generator = torch.Generator().manual_seed(config.seed + fold)
-    loader_common = dict(batch_size=config.batch_size, num_workers=config.num_workers,
-                         pin_memory=device_name.startswith("cuda"), worker_init_fn=seed_worker, generator=generator,
-                         persistent_workers=config.num_workers > 0)
+    loader_common = dict(
+        batch_size=config.batch_size,
+        num_workers=config.num_workers,
+        pin_memory=device_name.startswith("cuda"),
+        worker_init_fn=seed_worker,
+        generator=generator,
+        persistent_workers=config.num_workers > 0,
+    )
     sampler = None
     if config.class_balance_power > 0:
         counts = train_frame["label"].value_counts()
-        weights = train_frame["label"].map(lambda label: float(counts[label]) ** (-config.class_balance_power))
-        sampler = WeightedRandomSampler(torch.as_tensor(weights.to_numpy(), dtype=torch.double), len(train_frame), replacement=True, generator=generator)
+        weights = train_frame["label"].map(
+            lambda label: float(counts[label]) ** (-config.class_balance_power)
+        )
+        sampler = WeightedRandomSampler(
+            torch.as_tensor(weights.to_numpy(), dtype=torch.double),
+            len(train_frame),
+            replacement=True,
+            generator=generator,
+        )
     train_loader = DataLoader(train_set, shuffle=sampler is None, sampler=sampler, **loader_common)
     valid_loader = DataLoader(valid_set, shuffle=False, **loader_common)
     if device_name.startswith("cuda") and not torch.cuda.is_available():
@@ -129,9 +201,7 @@ def train_fold(
     amp_enabled = config.amp and device.type == "cuda"
     gpu_name = torch.cuda.get_device_name(device) if device.type == "cuda" else None
     print(
-        json.dumps(
-            {"device": str(device), "gpu_name": gpu_name, "amp_enabled": amp_enabled}
-        ),
+        json.dumps({"device": str(device), "gpu_name": gpu_name, "amp_enabled": amp_enabled}),
         flush=True,
     )
     model = ModalityHAR(modality, config).to(device)
@@ -146,19 +216,42 @@ def train_fold(
     checkpoint = output / "best.pt"
     for epoch in range(1, config.epochs + 1):
         train_metrics = run_epoch(
-            model, train_loader, criterion, device, amp_enabled, optimizer, scaler,
+            model,
+            train_loader,
+            criterion,
+            device,
+            amp_enabled,
+            optimizer,
+            scaler,
             config.grad_accum_steps,
         )
         valid_metrics = run_epoch(model, valid_loader, criterion, device, amp_enabled)
         scheduler.step()
-        row = {"epoch": epoch, "train_loss": train_metrics["loss"], "train_accuracy": train_metrics["accuracy"], "valid_loss": valid_metrics["loss"], "valid_accuracy": valid_metrics["accuracy"], "learning_rate": scheduler.get_last_lr()[0]}
+        row = {
+            "epoch": epoch,
+            "train_loss": train_metrics["loss"],
+            "train_accuracy": train_metrics["accuracy"],
+            "valid_loss": valid_metrics["loss"],
+            "valid_accuracy": valid_metrics["accuracy"],
+            "learning_rate": scheduler.get_last_lr()[0],
+        }
         history.append(row)
         (output / "history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
         print(json.dumps(row), flush=True)
         if valid_metrics["accuracy"] > best:
             best, stale = valid_metrics["accuracy"], 0
-            torch.save({"model": model.state_dict(), "config": config.to_dict(), "modality": modality, "fold": fold,
-                        "normalizer": normalizer, "valid_accuracy": best, "model_size_mb": size_mb}, checkpoint)
+            torch.save(
+                {
+                    "model": model.state_dict(),
+                    "config": config.to_dict(),
+                    "modality": modality,
+                    "fold": fold,
+                    "normalizer": normalizer,
+                    "valid_accuracy": best,
+                    "model_size_mb": size_mb,
+                },
+                checkpoint,
+            )
         else:
             stale += 1
         if stale >= config.early_stopping_patience:
@@ -170,6 +263,7 @@ def train_fold(
     )
     summary = {
         "modality": modality,
+        "sensor_encoder": config.sensor_encoder,
         "fold": fold,
         "device": str(device),
         "gpu_name": gpu_name,
@@ -197,7 +291,17 @@ def main() -> None:
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--max-clips-per-class", type=int)
     args = parser.parse_args()
-    train_fold(ModalityConfig.load(args.config), args.modality, args.manifest, args.data_root, args.cache_dir, args.output_dir, args.fold, args.device, args.max_clips_per_class)
+    train_fold(
+        ModalityConfig.load(args.config),
+        args.modality,
+        args.manifest,
+        args.data_root,
+        args.cache_dir,
+        args.output_dir,
+        args.fold,
+        args.device,
+        args.max_clips_per_class,
+    )
 
 
 if __name__ == "__main__":

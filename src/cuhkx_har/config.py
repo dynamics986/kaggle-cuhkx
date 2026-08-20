@@ -18,9 +18,17 @@ class ExperimentConfig:
     skeleton_graph: bool = False
     skeleton_motion: bool = False
     skeleton_motion_residual: bool = False
+    imu_encoder: str = "tcn"
+    imu_structured_cache_dir: str | None = None
+    imu_transformer_layers: int = 2
+    imu_transformer_heads: int = 4
+    imu_relative_position_max_distance: int = 63
     horizontal_flip_probability: float = 0.0
     preserve_aspect_ratio: bool = False
     shared_visual_sampling: bool = False
+    visual_crop_mode: str = "none"
+    visual_crop_metadata_root: str | None = None
+    visual_crop_padding: float = 0.12
     temporal_pooling: str = "mean"
     dropout: float = 0.15
     modality_dropout: float = 0.15
@@ -39,6 +47,18 @@ class ExperimentConfig:
     def __post_init__(self) -> None:
         if self.d_model % self.fusion_heads:
             raise ValueError("d_model must be divisible by fusion_heads")
+        if self.imu_encoder not in {"tcn", "device_cnn_rel_transformer"}:
+            raise ValueError("imu_encoder must be 'tcn' or 'device_cnn_rel_transformer'")
+        if self.imu_encoder == "device_cnn_rel_transformer" and not self.imu_structured_cache_dir:
+            raise ValueError(
+                "imu_structured_cache_dir is required for imu_encoder='device_cnn_rel_transformer'"
+            )
+        if self.imu_transformer_layers <= 0 or self.imu_transformer_heads <= 0:
+            raise ValueError("IMU transformer layers and heads must be positive")
+        if self.d_model % self.imu_transformer_heads:
+            raise ValueError("d_model must be divisible by imu_transformer_heads")
+        if self.imu_relative_position_max_distance <= 0:
+            raise ValueError("imu_relative_position_max_distance must be positive")
         skeleton_modes = sum(
             (self.skeleton_graph, self.skeleton_motion, self.skeleton_motion_residual)
         )
@@ -51,6 +71,12 @@ class ExperimentConfig:
             raise ValueError("horizontal_flip_probability must be in [0, 1]")
         if self.temporal_pooling not in {"mean", "directional"}:
             raise ValueError("temporal_pooling must be 'mean' or 'directional'")
+        if self.visual_crop_mode not in {"none", "yolo_person"}:
+            raise ValueError("visual_crop_mode must be 'none' or 'yolo_person'")
+        if self.visual_crop_mode == "yolo_person" and not self.visual_crop_metadata_root:
+            raise ValueError("visual_crop_metadata_root is required for yolo_person")
+        if not 0 <= self.visual_crop_padding < 1:
+            raise ValueError("visual_crop_padding must be in [0, 1)")
         if not 0 <= self.modality_dropout < 1:
             raise ValueError("modality_dropout must be in [0, 1)")
         if not 0 <= self.imu_device_dropout < 1:

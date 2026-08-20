@@ -5,7 +5,14 @@ from torch import nn
 
 from .config import ExperimentConfig
 from .constants import NUM_CLASSES, VISUAL_MODALITIES
-from .features import IMU_FEATURES, RADAR_FEATURES, SKELETON_FEATURES, SKELETON_JOINTS
+from .features import (
+    IMU_DEVICES,
+    IMU_FEATURES,
+    IMU_FEATURES_PER_DEVICE,
+    RADAR_FEATURES,
+    SKELETON_FEATURES,
+    SKELETON_JOINTS,
+)
 
 
 def make_divisible(value: float, divisor: int = 8) -> int:
@@ -127,6 +134,111 @@ class TemporalEncoder(nn.Module):
         else:
             pooled = features.mean(dim=-1)
         return self.output(self.pool_projection(pooled))
+
+
+class RelativeSelfAttention(nn.Module):
+    """Multi-head self-attention with an independently learned relative bias per head."""
+
+    def __init__(self, d_model: int, heads: int, max_distance: int, dropout: float) -> None:
+        super().__init__()
+        self.heads = heads
+        self.head_dim = d_model // heads
+        self.max_distance = max_distance
+        self.qkv = nn.Linear(d_model, d_model * 3)
+        self.output = nn.Linear(d_model, d_model)
+        self.relative_bias = nn.Parameter(torch.zeros(2 * max_distance + 1, heads))
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, inputs: torch.Tensor, valid: torch.Tensor) -> torch.Tensor:
+        batch, length, width = inputs.shape
+        qkv = self.qkv(inputs).reshape(batch, length, 3, self.heads, self.head_dim)
+        query, key, value = qkv.permute(2, 0, 3, 1, 4)
+        scores = torch.matmul(query, key.transpose(-2, -1)) * (self.head_dim**-0.5)
+        positions = torch.arange(length, device=inputs.device)
+        offsets = positions[None, :] - positions[:, None]
+        offsets = offsets.clamp(-self.max_distance, self.max_distance) + self.max_distance
+        bias = self.relative_bias[offsets].permute(2, 0, 1)
+        scores = scores + bias.unsqueeze(0)
+        scores = scores.masked_fill(~valid[:, None, None, :], torch.finfo(scores.dtype).min)
+        attention = self.dropout(torch.softmax(scores, dim=-1))
+        output = torch.matmul(attention, value).transpose(1, 2).reshape(batch, length, width)
+        return self.output(output) * valid.unsqueeze(-1)
+
+
+class RelativeTransformerBlock(nn.Module):
+    def __init__(self, d_model: int, heads: int, max_distance: int, dropout: float) -> None:
+        super().__init__()
+        self.norm1 = nn.LayerNorm(d_model)
+        self.attention = RelativeSelfAttention(d_model, heads, max_distance, dropout)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.mlp = nn.Sequential(
+            nn.Linear(d_model, d_model * 4),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_model * 4, d_model),
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, inputs: torch.Tensor, valid: torch.Tensor) -> torch.Tensor:
+        inputs = inputs + self.attention(self.norm1(inputs), valid)
+        inputs = inputs + self.mlp(self.norm2(inputs))
+        return inputs * valid.unsqueeze(-1)
+
+
+class IMUDeviceCNNRelativeTransformerEncoder(nn.Module):
+    """Shared device CNN, mask-aware device pooling, then relative temporal attention."""
+
+    def __init__(self, config: ExperimentConfig) -> None:
+        super().__init__()
+        width = config.d_model
+        self.local1 = nn.Conv1d(IMU_FEATURES_PER_DEVICE, width, kernel_size=5, padding=2)
+        self.local2 = nn.Conv1d(width, width, kernel_size=3, padding=1, groups=width)
+        self.local_norm = nn.LayerNorm(width)
+        self.device_embedding = nn.Parameter(torch.zeros(IMU_DEVICES, width))
+        self.device_gate = nn.Linear(width, 1)
+        self.dropout = nn.Dropout(config.dropout)
+        self.cls = nn.Parameter(torch.zeros(1, 1, width))
+        self.blocks = nn.ModuleList(
+            [
+                RelativeTransformerBlock(
+                    width,
+                    config.imu_transformer_heads,
+                    config.imu_relative_position_max_distance,
+                    config.dropout,
+                )
+                for _ in range(config.imu_transformer_layers)
+            ]
+        )
+        self.output = nn.LayerNorm(width)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        if inputs.ndim != 4 or inputs.shape[2:] != (IMU_DEVICES, IMU_FEATURES_PER_DEVICE + 1):
+            raise ValueError(
+                "Structured IMU input must have shape "
+                f"[batch, steps, {IMU_DEVICES}, {IMU_FEATURES_PER_DEVICE + 1}]"
+            )
+        values, device_valid = inputs[..., :IMU_FEATURES_PER_DEVICE], inputs[..., -1].bool()
+        batch, steps, devices, features = values.shape
+        values = values * device_valid.unsqueeze(-1)
+        local = values.permute(0, 2, 3, 1).reshape(batch * devices, features, steps)
+        local = torch.nn.functional.silu(self.local1(local))
+        local = torch.nn.functional.silu(self.local2(local))
+        local = local.transpose(1, 2).reshape(batch, devices, steps, -1).transpose(1, 2)
+        local = self.local_norm(local) + self.device_embedding[None, None]
+        local = self.dropout(local) * device_valid.unsqueeze(-1)
+        logits = self.device_gate(local).squeeze(-1)
+        logits = logits.masked_fill(~device_valid, torch.finfo(logits.dtype).min)
+        weights = torch.softmax(logits, dim=-1)
+        time_valid = device_valid.any(dim=-1)
+        weights = torch.where(time_valid.unsqueeze(-1), weights, torch.zeros_like(weights))
+        sequence = (local * weights.unsqueeze(-1)).sum(dim=2)
+        sequence = torch.cat([self.cls.expand(batch, -1, -1), sequence], dim=1)
+        valid = torch.cat(
+            [torch.ones(batch, 1, dtype=torch.bool, device=inputs.device), time_valid], dim=1
+        )
+        for block in self.blocks:
+            sequence = block(sequence, valid)
+        return self.output(sequence[:, 0])
 
 
 class SkeletonMotionEncoder(nn.Module):
@@ -311,8 +423,10 @@ class MultimodalHAR(nn.Module):
                 config.dropout,
                 config.temporal_pooling,
             )
-        self.imu_encoder = TemporalEncoder(
-            IMU_FEATURES, d_model, config.dropout, config.temporal_pooling
+        self.imu_encoder: nn.Module = (
+            IMUDeviceCNNRelativeTransformerEncoder(config)
+            if config.imu_encoder == "device_cnn_rel_transformer"
+            else TemporalEncoder(IMU_FEATURES, d_model, config.dropout, config.temporal_pooling)
         )
         self.radar_encoder = TemporalEncoder(
             RADAR_FEATURES, d_model, config.dropout, config.temporal_pooling

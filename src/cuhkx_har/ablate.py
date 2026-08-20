@@ -65,6 +65,8 @@ def run_ablation(
         normalizer=checkpoint["normalizer"],
         preserve_aspect_ratio=config.preserve_aspect_ratio,
         shared_visual_sampling=config.shared_visual_sampling,
+        imu_encoder=config.imu_encoder,
+        imu_structured_cache_dir=config.imu_structured_cache_dir,
     )
     device = torch.device(device_name)
     model = MultimodalHAR(config).to(device)

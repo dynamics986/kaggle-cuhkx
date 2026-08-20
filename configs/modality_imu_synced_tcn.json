@@ -1,0 +1,22 @@
+{
+  "seed": 20260719,
+  "image_size": 128,
+  "visual_frames": 8,
+  "sensor_steps": 64,
+  "width_mult": 1.0,
+  "d_model": 96,
+  "temporal_pooling": "mean",
+  "sensor_encoder": "tcn",
+  "dropout": 0.3,
+  "horizontal_flip_probability": 0.5,
+  "batch_size": 16,
+  "grad_accum_steps": 1,
+  "num_workers": 4,
+  "epochs": 40,
+  "learning_rate": 0.0004,
+  "weight_decay": 0.05,
+  "label_smoothing": 0.08,
+  "class_balance_power": 0.0,
+  "amp": true,
+  "early_stopping_patience": 8
+}

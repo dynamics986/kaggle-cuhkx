@@ -91,6 +91,8 @@ def evaluate_checkpoint(
         normalizer=checkpoint["normalizer"],
         preserve_aspect_ratio=bool(config.get("preserve_aspect_ratio", False)),
         shared_visual_sampling=bool(config.get("shared_visual_sampling", False)),
+        imu_encoder=str(config.get("imu_encoder", "tcn")),
+        imu_structured_cache_dir=config.get("imu_structured_cache_dir"),
     )
     loader = DataLoader(
         dataset,

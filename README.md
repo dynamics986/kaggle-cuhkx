@@ -1,3 +1,4 @@
+
 # CUHK-X Small Model Track
 
 Current, leakage-safe multimodal HAR pipeline for the CUHK-X Small Model Track.
@@ -6,23 +7,23 @@ Kaggle public leaderboard is only a final external check.
 
 ## Current training approach
 
-The current five-fold baseline is [`configs/synced_flip_imu_dropout.json`](configs/synced_flip_imu_dropout.json):
+Current local-CV model: a `0.25 / 0.75` probability blend of
+[`synced_flip_imu_dropout`](configs/synced_flip_imu_dropout.json) and
+[`pose_motion_residual`](configs/pose_motion_residual.json): pooled OOF
+`0.50198`, cross-fitted OOF `0.49736`, 51.7 MB.
 
-- A lightweight, from-scratch visual encoder processes Depth Color, IR, and
-  Thermal streams over time.
-- Separate temporal encoders process normalized 17-joint skeleton, five fixed
-  IMU device slots, and frame-aggregated mmWave radar.
-- A compact Transformer fuses modality embeddings with explicit
-  missing-modality masks.
-- One synchronized horizontal flip is applied to the visual streams, Skeleton,
-  IMU device order, and radar horizontal position.
-- During training only, one IMU device slot is dropped with 15% probability to
-  improve robustness to partially missing IMU devices.  Validation and
-  inference never use this augmentation.
+Both use lightweight visual CNNs, temporal sensor encoders, missing-modality
+masks, and Transformer fusion. The residual model replaces the Skeleton TCN
+with pose + motion residual encoding. Synchronized flip and 15% training-only
+IMU slot dropout are retained. YOLO three-stream crop and Radar PointNet are
+rejected; the IMU Transformer fusion probe gained only `+0.00185` on fold 2,
+so it is not promoted.
 
-All weights are trained from scratch.  No pretrained backbone, pseudo-label,
-manual test label, or test-derived normalization/statistics is used.  The model
-and any inference ensemble must remain below the 100 MB competition limit.
+Large pretrained backbones are prohibited. Auditable lightweight pretrained
+models are permitted when their source, version, licence, training data scope,
+and weight size are recorded; no pseudo-label, manual test label, or
+test-derived normalization/statistics is used. The final detector plus HAR
+inference ensemble must remain below the 100 MB competition limit.
 
 ## Evaluation contract
 
@@ -51,19 +52,6 @@ uv sync --dev
 uv run python -c "import torch; print(torch.__version__); print(torch.cuda.get_device_name(0))"
 uv run pytest
 ```
-
-## Current workflow
-
-1. Build and freeze `manifests/cv5/train.csv` using the commands in
-   [`docs/July25.md`](docs/July25.md).
-2. Ensure `cache-64` exists for both the train and test manifests.
-3. Train the same configuration on folds 0–4, using a dedicated artifact
-   directory per experiment.
-4. Run `cuhkx-cv-report` only after all five validation-prediction files exist.
-5. Record the configuration, all fold results, OOF score, and decision in
-   [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md).
-6. Generate and validate a Kaggle CSV only after CV selects a model or
-   cross-fitted ensemble.
 
 ## Submission format
 

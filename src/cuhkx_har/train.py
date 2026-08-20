@@ -70,8 +70,9 @@ def run_epoch(
     progress = tqdm(loader, leave=False, desc="train" if training else "valid")
     for step, batch in enumerate(progress, start=1):
         batch = move_batch(batch, device)
-        with torch.set_grad_enabled(training), torch.amp.autocast(
-            device_type=device.type, enabled=use_amp
+        with (
+            torch.set_grad_enabled(training),
+            torch.amp.autocast(device_type=device.type, enabled=use_amp),
         ):
             logits = model(batch)
             raw_loss = criterion(logits, batch["label"])
@@ -172,7 +173,13 @@ def train_fold(
         )
     output = Path(output_dir).resolve() / f"fold_{fold}"
     output.mkdir(parents=True, exist_ok=True)
-    normalizer = compute_sensor_normalizer(train_frame, cache_dir, split="train")
+    normalizer = compute_sensor_normalizer(
+        train_frame,
+        cache_dir,
+        split="train",
+        imu_encoder=config.imu_encoder,
+        imu_structured_cache_dir=config.imu_structured_cache_dir,
+    )
 
     common = dict(
         data_root=data_root,
@@ -186,6 +193,15 @@ def train_fold(
         preserve_aspect_ratio=config.preserve_aspect_ratio,
         shared_visual_sampling=config.shared_visual_sampling,
         imu_device_dropout=config.imu_device_dropout,
+        visual_crop_mode=config.visual_crop_mode,
+        visual_crop_metadata_path=(
+            Path(config.visual_crop_metadata_root) / f"fold_{fold}" / "bboxes.json"
+            if config.visual_crop_mode == "yolo_person"
+            else None
+        ),
+        visual_crop_padding=config.visual_crop_padding,
+        imu_encoder=config.imu_encoder,
+        imu_structured_cache_dir=config.imu_structured_cache_dir,
     )
     train_set = MultimodalDataset(train_frame, training=True, **common)
     valid_set = MultimodalDataset(valid_frame, training=False, **common)
@@ -332,9 +348,7 @@ def train_fold(
     validation_predictions = collect_validation_predictions(model, valid_loader, device, use_amp)
     validation_predictions.to_csv(output / "validation_predictions.csv", index=False)
     per_class = (
-        validation_predictions.assign(
-            correct=lambda frame: frame["label"] == frame["prediction"]
-        )
+        validation_predictions.assign(correct=lambda frame: frame["label"] == frame["prediction"])
         .groupby("label")["correct"]
         .agg(["mean", "count"])
         .reset_index()
@@ -342,6 +356,8 @@ def train_fold(
     per_class.to_csv(output / "per_class_accuracy.csv", index=False)
     summary = {
         "fold": fold,
+        "imu_encoder": config.imu_encoder,
+        "imu_structured_cache_dir": config.imu_structured_cache_dir,
         "best_valid_accuracy": best_accuracy,
         "model_size_mb": size_mb,
         "elapsed_minutes": (time.time() - started) / 60,

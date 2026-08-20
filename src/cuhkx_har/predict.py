@@ -58,6 +58,15 @@ def predict_checkpoint(
             num_views=views,
             preserve_aspect_ratio=config.preserve_aspect_ratio,
             shared_visual_sampling=config.shared_visual_sampling,
+            visual_crop_mode=config.visual_crop_mode,
+            visual_crop_metadata_path=(
+                Path(config.visual_crop_metadata_root) / "final" / "bboxes.json"
+                if config.visual_crop_mode == "yolo_person"
+                else None
+            ),
+            visual_crop_padding=config.visual_crop_padding,
+            imu_encoder=config.imu_encoder,
+            imu_structured_cache_dir=config.imu_structured_cache_dir,
         )
         loader = DataLoader(
             dataset,

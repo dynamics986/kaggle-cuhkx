@@ -13,6 +13,7 @@ dependencies = [
   "torch>=2.7",
   "torchvision>=0.22",
   "tqdm>=4.67",
+  "ultralytics>=8.3,<9",
 ]
 
 [project.scripts]
@@ -30,6 +31,12 @@ cuhkx-modality-train = "cuhkx_modality.train:main"
 cuhkx-modality-report = "cuhkx_modality.report:main_report"
 cuhkx-modality-summary = "cuhkx_modality.report:main_summary"
 cuhkx-modality-plot = "cuhkx_modality.plot:main"
+cuhkx-yolo-annotations = "cuhkx_har.yolo:main_annotations"
+cuhkx-yolo-audit-labels = "cuhkx_har.yolo:main_audit_labels"
+cuhkx-yolo-train = "cuhkx_har.yolo:main_train"
+cuhkx-yolo-crops = "cuhkx_har.yolo:main_crops"
+cuhkx-yolo-inspect = "cuhkx_har.yolo:main_inspect"
+cuhkx-weight-audit = "cuhkx_har.yolo:main_weight_audit"
 
 [dependency-groups]
 dev = [
