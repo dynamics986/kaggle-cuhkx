@@ -2,8 +2,14 @@
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+
 artifacts/
 cache/
+cache-64/
+cache-64-synced-points/
 manifests/
 *.pyc
 
+
+yolo26n.pt
+yolov8n.pt
