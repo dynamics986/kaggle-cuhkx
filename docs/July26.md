@@ -1,17 +1,6 @@
+# July 26 Training and Results
 
-# July 26 training log
-
-## Phase A failure diagnosis
-
-The attempted 192px / 12-frame Visual V2 run aborted during its first CUDA
-allocation (`c10_cuda_check` / CUDA allocator). The GPU was otherwise idle and
-had 8,151 MiB free. The relevant new setting was `batch_size=24`; the older
-Visual V2 used 16. Treat this as a probable CUDA out-of-memory failure, not a
-cache or Python-code failure.
-
-The revised Visual V2 regularization configuration uses **batch 16** and **6
-workers**. Six workers still improves visual decoding throughput over the prior
-four; batch 16 is already known to fit this 8 GB GPU.
+> uses `batch 16` and `6 workers`
 
 ## Baseline and scope
 
@@ -23,69 +12,28 @@ The current comparable baseline is `cv5_synced_flip_imu_dropout`:
 | Fold 2 accuracy | 0.48333 |
 | Fold standard deviation | 0.03834 |
 
-Tonight tests Visual V2 with stronger regularization. It preserves the
-full-frame, 12-frame, directional design while targeting the observed
-cross-subject overfitting. The larger V3 model is explicitly deferred: an
-unattended job must not start an unverified model that may OOM or fail workers.
+## Pose + Motion residual gate
 
-
-## Replacement plan after the failed Visual V2 screen: Pose + Motion residual gate
-
-Visual V2 regularization failed fold 2 (`0.44626`), so it must not consume the
-overnight window. The next experiment targets the modality with the strongest
-existing evidence: removing Skeleton previously caused the largest accuracy
-drop, while the standalone motion encoder was weaker but had potentially
-complementary errors.
+Visual V2 regularization failed fold 2 (`0.44626`). So the next experiment targets the modality with the strongest existing evidence: removing Skeleton previously caused the largest accuracy drop, while the standalone motion encoder was weaker but had potentially complementary errors.
 
 ### Method
 
-`skeleton_motion_residual` keeps the original pose TCN as the main Skeleton
-representation. A second TCN receives pose plus first-order velocity and
-second-order acceleration. Their embeddings are combined as:
+`skeleton_motion_residual` keeps the original pose TCN as the main Skeleton representation. A second TCN receives pose plus first-order velocity and second-order acceleration. Their embeddings are combined as:
 
 ```text
 output = LayerNorm(pose + sigmoid(gate(pose, motion)) * motion)
 ```
 
-The gate is initialized with bias `-2`, so the initial motion contribution is
-about 12%. Training must earn a larger motion contribution; the proven pose
-path is never replaced. The change is intentionally confined to the Skeleton
-encoder. Visual streams, IMU, radar, fusion, subject folds, and normalizer
-rules remain unchanged.
-
-### two-epoch reliability probe (5–15 minutes)
-
-```powershell
-cd C:\Users\dynam\Documents\CUHK-X\har-solution
-
-$probe = "artifacts\probe_pose_motion_residual"
-uv run cuhkx-train `
-  --config configs\pose_motion_residual_probe.json `
-  --manifest manifests\cv5\train.csv `
-  --data-root ..\Small-Model-Track\Training\extracted\HAR\data `
-  --cache-dir cache-64 `
-  --output-dir $probe `
-  --fold 2
-```
-
-```powershell
-uv run cuhkx-monitor `
-  --run-dir artifacts\probe_pose_motion_residual\fold_2 `
-  --patience 2
-```
-
-Require a normal `summary.json` and a model size below 100 MB before continuing.
 
 ### supervised fold-2 screen (about 1–2 hours)
 
 ```powershell
-$residual = "artifacts\cv5_pose_motion_residual"
 uv run cuhkx-train `
-  --config configs\pose_motion_residual.json `
-  --manifest manifests\cv5\train.csv `
   --data-root ..\Small-Model-Track\Training\extracted\HAR\data `
+  --manifest manifests\cv5\train.csv `
+  --config configs\pose_motion_residual.json `
   --cache-dir cache-64 `
-  --output-dir $residual `
+  --output-dir artifacts\cv5_pose_motion_residual `
   --fold 2
 ```
 
@@ -105,14 +53,13 @@ If the fold-2 gate passes, run the following before leaving. Fold 2 is omitted
 because it already completed with the identical configuration.
 
 ```powershell
-$residual = "artifacts\cv5_pose_motion_residual"
 foreach ($fold in @(0, 1, 3, 4)) {
   uv run cuhkx-train `
-    --config configs\pose_motion_residual.json `
-    --manifest manifests\cv5\train.csv `
     --data-root ..\Small-Model-Track\Training\extracted\HAR\data `
+    --manifest manifests\cv5\train.csv `
+    --config configs\pose_motion_residual.json `
     --cache-dir cache-64 `
-    --output-dir $residual `
+    --output-dir artifacts\cv5_pose_motion_residual `
     --fold $fold
 }
 ```
@@ -148,7 +95,7 @@ augmentation (small joint jitter and body-scale variation) after a coordinate
 system audit. It is a better next bet than filling the 100 MB parameter limit
 or launching another unvalidated Visual V2 family unattended.
 
-## Completed result and Kaggle submission (2026-07-26)
+## Result and Kaggle Submission
 
 The pose + motion residual gate completed all five folds successfully.
 
@@ -168,8 +115,6 @@ with equal weight within each family: 0.05 for each of the five baseline folds
 and 0.15 for each of the five pose-motion residual folds.
 
 ```powershell
-cd C:\Users\dynam\Documents\CUHK-X\har-solution
-
 uv run cuhkx-predict `
   --checkpoints `
     artifacts\cv5_synced_flip_imu_dropout\fold_0\best.pt `
@@ -198,22 +143,12 @@ uv run cuhkx-check-submission `
   --test-csv ..\Small-Model-Track\Testing\test_file\test.csv
 ```
 
-Only upload when the validator prints `Submission is valid`. The upload file is
-`artifacts\submission_pose_motion_blend.csv`; checkpoints are not uploaded.
-
-### Public leaderboard follow-up
-
-This submission scored `0.41791`, lower than the prior public score `0.42786`.
-Do not retune the 0.25/0.75 blend against this result. The cross-fitted local
-gain remains strong, while the public difference is only 0.00995 (roughly four
-clips if all 405 test clips were public). Preserve the prior submission as the
-public-LB safe pick and this blend as the CV pick until a missingness-stress
-diagnostic provides stronger evidence.
+After this submission, we scored `0.41791`, lower than the prior public score `0.42786`.
 
 
 ### Difficult actions and user analysis
 
-The following results are all from five-fold OOF: each user's samples are predicted only by models that have not seen that user.
+The following results are from five-fold OOF: each user's samples are predicted only by models that have not seen that user.
 
 The changes for difficult actions are not consistent:
 
@@ -265,8 +200,6 @@ Run the baseline first. Cached sensor features must already exist; this command
 does not train or overwrite checkpoints.
 
 ```powershell
-cd C:\Users\dynam\Documents\CUHK-X\har-solution
-
 uv run cuhkx-stress-test `
   --checkpoints `
     artifacts\cv5_synced_flip_imu_dropout\fold_0\best.pt `
@@ -299,21 +232,3 @@ uv run cuhkx-stress-test `
 For a quick diagnosis of the two shifts most relevant to the competition, add
 `--stresses none drop_thermal drop_radar`. Use the full six-case run before a
 major architecture change.
-
-### How to read the reports
-
-Each JSON report contains pooled counts plus the result for every held-out
-fold. First confirm that `pooled.none.accuracy` closely reproduces that
-family's ordinary one-view OOF result. Then calculate the absolute drop
-`none.accuracy - <condition>.accuracy`, and compare the same condition between
-the two model families.
-
-* A large `drop_thermal` or `drop_radar` drop shows a likely weakness if that
-  modality is unavailable or malformed; inspect the individual folds before
-  deciding whether a training change is justified.
-* A large `visual_first_frame` drop means the model uses visual motion; this is
-  useful information, but is not by itself a defect.
-* Prefer a change only if it reduces the relevant stress drop **without
-  degrading normal cross-user OOF**, and re-run the cross-fitted blend audit.
-* Do not select a model, condition, or blend weight from the public leaderboard
-  alone. Record the JSON metrics in `docs/EXPERIMENTS.md` after running them.
