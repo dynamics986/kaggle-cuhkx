@@ -1,0 +1,12 @@
+{
+  "method": 1,
+  "name": "lightgbm",
+  "folds": [
+    2,
+    4
+  ],
+  "learning_rate": 0.035,
+  "num_boost_round": 1000,
+  "num_leaves": 48,
+  "seed": 0
+}

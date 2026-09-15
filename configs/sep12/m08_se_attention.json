@@ -1,0 +1,19 @@
+{
+  "method": 8,
+  "name": "se_attention",
+  "folds": [
+    2,
+    4
+  ],
+  "frames": 16,
+  "image_size": 128,
+  "dim": 128,
+  "dropout": 0.25,
+  "epochs": 60,
+  "patience": 15,
+  "batch_size": 8,
+  "workers": 4,
+  "learning_rate": 0.001,
+  "weight_decay": 0.01,
+  "seed": 0
+}

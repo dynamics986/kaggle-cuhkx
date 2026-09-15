@@ -1,0 +1,1 @@
+{"method":5,"name":"dual_resnet18_clip_consistent_aug","frames":16,"image_size":128,"dim":128,"dropout":0.30,"epochs":60,"patience":15,"batch_size":4,"workers":4,"learning_rate":0.0002,"weight_decay":0.02,"seed":13,"augmentation":{"flip_probability":0.5,"crop_scale":0.12,"brightness":0.12,"contrast":0.12,"erase_fraction":0.14,"erase_probability":0.40,"temporal_offset":1}}
