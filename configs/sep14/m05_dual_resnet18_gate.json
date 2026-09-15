@@ -1,0 +1,30 @@
+{
+    "method": 5,
+    "name": "dual_resnet18_depth_ir_gate_strong_aug",
+    "frames": 16,
+    "image_size": 128,
+    "dim": 128,
+    "dropout": 0.30,
+    "epochs": 60,
+    "patience": 15,
+    "batch_size": 4,
+    "workers": 6,
+    "learning_rate": 0.0002,
+    "weight_decay": 0.02,
+    "seed": 14,
+    "modality_gate": true,
+    "augmentation": {
+        "flip_probability": 0.5,
+        "crop_scale_min": 0.15,
+        "crop_scale": 0.20,
+        "brightness": 0.15,
+        "contrast": 0.15,
+        "erase_fraction": 0.15,
+        "erase_probability": 0.35,
+        "temporal_offset": 1,
+        "temporal_speed_range": [
+            0.8,
+            1.2
+        ]
+    }
+}

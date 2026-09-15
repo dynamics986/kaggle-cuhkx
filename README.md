@@ -1,68 +1,40 @@
+# CUHK-X Small Model Track: Lightweight HAR
 
-# CUHK-X Small Model Track
+## Introduction
 
-Current, leakage-safe multimodal HAR pipeline for the CUHK-X Small Model Track.
-All model selection is driven by subject-held-out local cross-validation; the
-Kaggle public leaderboard is only a final external check.
+This repository contains a Human Activity Recognition solution for the CUHK-X
+Kaggle Competition Small Model Track. The task is to predict one of 40 actions
+from six modalities: IR, Depth_Color, Thermal, Skeleton, IMU and Radar. Models
+are evaluated with subject-held-out validation to measure cross-user
+generalization. A submitted inference package, including any person detector,
+must stay below the 100 MB model-size limit.
 
-## Current training approach
+The repository preserves two protocols: historical three-fold development in
+`manifests/cv3/`, and the frozen five-fold subject-held-out protocol in
+`manifests/cv5/`. Their scores are reported separately and must not be ranked
+against one another.
 
-Current local-CV model: a `0.25 / 0.75` probability blend of
-[`synced_flip_imu_dropout`](configs/synced_flip_imu_dropout.json) and
-[`pose_motion_residual`](configs/pose_motion_residual.json): pooled OOF
-`0.50198`, cross-fitted OOF `0.49736`, 51.7 MB.
+## Results
 
-Both use lightweight visual CNNs, temporal sensor encoders, missing-modality
-masks, and Transformer fusion. The residual model replaces the Skeleton TCN
-with pose + motion residual encoding. Synchronized flip and 15% training-only
-IMU slot dropout are retained. YOLO three-stream crop and Radar PointNet are
-rejected; the IMU Transformer fusion probe gained only `+0.00185` on fold 2,
-so it is not promoted.
+| Result | Protocol and metric | Accuracy | Notes |
+| --- | --- | ---: | --- |
+| m01 LightGBM + YOLO-box temporal features, box baseline | cv5 selected folds 2 and 4, validation-size weighted | **0.51949** | Best measured Sep14 selected-fold result; fold 2: 0.55926, fold 4: 0.48594. |
+| Dual ResNet-18 with moderate clip-consistent augmentation | cv5 selected folds 2 and 4, validation-size weighted | **0.39748** | Best visual-only Sep13 result; fold 2: 0.44259, fold 4: 0.35938. |
+| Synced-flip baseline + pose-motion residual blend | cv5 five-fold cross-fitted OOF | **0.49736** | Conservative full-CV blend estimate; the pooled OOF blend is 0.50198. |
+| Base + balanced + pose-motion blend (0.30 / 0.30 / 0.40) | historical cv3 Fold 0 | **0.54938** | Development result from the older cache and preprocessing pipeline; not comparable to cv5. |
 
-Large pretrained backbones are prohibited. Auditable lightweight pretrained
-models are permitted when their source, version, licence, training data scope,
-and weight size are recorded; no pseudo-label, manual test label, or
-test-derived normalization/statistics is used. The final detector plus HAR
-inference ensemble must remain below the 100 MB competition limit.
+The complete chronology, fold scores, failures and interpretation through Sep14
+are recorded in [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md).
 
-## Evaluation contract
+## Reproduction
 
-The competition metric is clip-level top-1 accuracy.  Local validation uses a
-frozen five-fold `StratifiedGroupKFold` split grouped by subject:
-
-- A subject occurs in exactly one validation fold.
-- Sensor normalization is fitted on that fold's training subjects only.
-- Every candidate needs one complete OOF prediction file per fold.
-- `cuhkx-cv-report` rejects incomplete, duplicated, misaligned, or invalid OOF
-  predictions before reporting OOF accuracy, fold stability, per-class metrics,
-  and a confusion matrix.
-- Ensemble ideas are accepted only when their leave-one-fold-out, cross-fitted
-  score improves, not merely because a weight search improves pooled OOF.
-
-Detailed setup, training, monitoring, resume rules, OOF audit, and ensemble
-selection commands are in [`docs/July25.md`](docs/July25.md).  The next
-CV-gated visual upgrade is specified in [`docs/July26.md`](docs/July26.md).
-
-## Setup
-
-Run from `C:\Users\dynam\Documents\CUHK-X\har-solution`:
+Start from the repository root, install the locked environment, and keep the
+competition data at the paths documented in the reproduction guide:
 
 ```powershell
-uv sync --dev
-uv run python -c "import torch; print(torch.__version__); print(torch.cuda.get_device_name(0))"
-uv run pytest
+uv sync --extra sep12 --dev
 ```
 
-## Submission format
-
-Kaggle receives a CSV, not checkpoints.  Validate a generated file before
-uploading:
-
-```powershell
-uv run cuhkx-check-submission `
-  --submission artifacts\submission.csv `
-  --test-csv ..\Small-Model-Track\Testing\test_file\test.csv
-```
-
-The file must have exactly `path,prediction`, preserve official test-row order,
-and contain integer labels from 0 to 39.
+Detailed, result-specific commands are in [docs/Reproduction.md](docs/Reproduction.md).
+They cover data caches, fold-safe YOLO crops, training, OOF checks, blending and
+official submission validation for each result above.

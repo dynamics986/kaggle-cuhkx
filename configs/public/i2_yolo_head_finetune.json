@@ -1,0 +1,20 @@
+{
+  "recipe": "i2_yolo_head_finetune",
+  "mode": "fixed_backbone_head_finetune",
+  "frames": 16,
+  "image_size": 128,
+  "channels": 4,
+  "tta": 4,
+  "margin": 1.4,
+  "weights": [
+    0.5,
+    0.5
+  ],
+  "required_classifier_assets": [
+    "ensemble_packed.pt"
+  ],
+  "model_definition": "src/cuhkx_public/ig65m_models.py",
+  "detector_default": "artifacts/yolo/detectors/fold_2/yolov8n_fold_2.pt",
+  "detector_note": "Local fold_2 YOLOv8n replaces unavailable notebook yolo11n; this is not exact detector reproduction.",
+  "epochs": 10
+}

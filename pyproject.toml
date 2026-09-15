@@ -5,6 +5,7 @@ description = "Leakage-safe lightweight multimodal HAR solution for the CUHK-X S
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
+  "autogluon-tabular[all]>=1.6.1",
   "matplotlib>=3.9",
   "numpy>=2.1",
   "pandas>=2.2",
@@ -13,10 +14,15 @@ dependencies = [
   "torch>=2.7",
   "torchvision>=0.22",
   "tqdm>=4.67",
-  "ultralytics>=8.3,<9",
 ]
 
+[project.optional-dependencies]
+sep12 = ["lightgbm>=4.6", "ultralytics==8.4.121"]
+
 [project.scripts]
+cuhkx-sep12-prepare = "cuhkx_sep12.prepare:main"
+cuhkx-sep12-train = "cuhkx_sep12.train:main"
+cuhkx-sep12-lightgbm = "cuhkx_sep12.lightgbm:main"
 cuhkx-index = "cuhkx_har.manifest:main"
 cuhkx-cache = "cuhkx_har.features:main"
 cuhkx-train = "cuhkx_har.train:main"
@@ -31,12 +37,7 @@ cuhkx-modality-train = "cuhkx_modality.train:main"
 cuhkx-modality-report = "cuhkx_modality.report:main_report"
 cuhkx-modality-summary = "cuhkx_modality.report:main_summary"
 cuhkx-modality-plot = "cuhkx_modality.plot:main"
-cuhkx-yolo-annotations = "cuhkx_har.yolo:main_annotations"
-cuhkx-yolo-audit-labels = "cuhkx_har.yolo:main_audit_labels"
-cuhkx-yolo-train = "cuhkx_har.yolo:main_train"
-cuhkx-yolo-crops = "cuhkx_har.yolo:main_crops"
-cuhkx-yolo-inspect = "cuhkx_har.yolo:main_inspect"
-cuhkx-weight-audit = "cuhkx_har.yolo:main_weight_audit"
+cuhkx-automl = "cuhkx_har.automl:main"
 
 [dependency-groups]
 dev = [
@@ -58,7 +59,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/cuhkx_har", "src/cuhkx_modality"]
+packages = ["src/cuhkx_har", "src/cuhkx_modality", "src/cuhkx_sep12", "src/cuhkx_sep13", "src/cuhkx_sep14", "src/cuhkx_sep15", "src/cuhkx_public"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,1 @@
+{"method":4,"name":"depth_weighted_probability_sum","frames":16,"image_size":128,"dim":128,"dropout":0.30,"epochs":60,"patience":15,"batch_size":8,"workers":4,"learning_rate":0.0007,"weight_decay":0.02,"seed":13,"branch_weights":[0.55,1.0,0.35],"augmentation":{"crop_scale":0.08,"brightness":0.08,"contrast":0.08,"erase_fraction":0.10,"erase_probability":0.35,"temporal_offset":1}}

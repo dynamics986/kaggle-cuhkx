@@ -1,0 +1,22 @@
+{
+  "recipe": "i3_se_specialist",
+  "improved": true,
+  "frames": 16,
+  "image_size": 112,
+  "epochs": 40,
+  "early_stopping_patience": 8,
+  "effective_batch": 32,
+  "micro_batch": 32,
+  "workers": 2,
+  "seed": 2026,
+  "lr": 0.0001,
+  "weight_decay": 0.0001,
+  "label_smoothing": 0.1,
+  "cosine": true,
+  "grad_clip": 1.0,
+  "amp": true,
+  "tta": 4,
+  "checkpoint": "best",
+  "preprocess": "notebook_full_frame",
+  "split": "notebook"
+}

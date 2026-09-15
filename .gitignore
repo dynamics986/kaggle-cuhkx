@@ -1,34 +1,26 @@
-# Python environments, bytecode, and tool caches
 .venv/
+.venv310/
+.vscode/
 __pycache__/
 .pytest_cache/
-.pytest-tmp/
 .ruff_cache/
-.mypy_cache/
-.coverage
-coverage.xml
-htmlcov/
-*.py[cod]
-*.egg-info/
+.public-detector-test-tmp/
+.public-ig65m-test-tmp/
 
-# uv-managed local downloads and temporary Python installations
-.uv-cache/
-.uv-python/
-
-# Generated training outputs: checkpoints, logs, curves, reports, and submissions
+.pytest-tmp
 artifacts/
-
-# Downloaded detector/checkpoint weights
-*.pt
-
-# Rebuildable feature caches. Keep source data outside this repository.
+references/
 cache/
 cache-64/
 cache-64-synced-points/
+*.pyc
 
-# Generated dataset manifests may contain machine-specific absolute paths.
-manifests/
 
-# OS file-manager metadata
-Thumbs.db
-.DS_Store
+yolo26n.pt
+yolov8n.pt
+cache-sep12/
+.sep12-test-tmp/
+.sep12-serial-test-tmp/
+
+cache-public/
+.public-test-tmp/

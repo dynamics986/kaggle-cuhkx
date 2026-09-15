@@ -1,15 +1,8 @@
+# July 25 Training and Results
 
-# Iteration workflow (updated 2026-07-25)
-
-## One-time setup: freeze a five-fold protocol
-
-Use five subject-held-out folds for all new experiments.  The older
-`manifests/train.csv` has three folds and is useful for historical comparison,
-but do not mix it with five-fold scores.
+## Use five subject-held-out folds for all new experiments
 
 ```powershell
-cd C:\Users\dynam\Documents\CUHK-X\har-solution
-
 uv run cuhkx-index `
   --train-root ..\Small-Model-Track\Training\extracted\HAR\data `
   --test-root ..\Small-Model-Track\Testing\data\small_model_track_test `
@@ -20,8 +13,7 @@ uv run cuhkx-index `
   --seed 20260719
 ```
 
-Commit or archive `manifests/cv5/train.csv` after creating it.  Do not change
-its seed, number of folds, or subject assignments while comparing experiments.
+Archive `manifests/cv5/train.csv` after creating it. Keep its seed, number of folds, or subject assignments uunchanged for comparing experiments.
 The cache remains valid because feature caching is independent of fold
 assignment.  If it does not already exist, make the training cache once:
 
@@ -43,14 +35,13 @@ the small, targeted IMU device-dropout candidate.  For a clean control, replace
 the config with `configs/synced_flip.json`.
 
 ```powershell
-$experiment = "artifacts\cv5_synced_flip_imu_dropout"
 foreach ($fold in 0..4) {
   uv run cuhkx-train `
-    --config configs\synced_flip_imu_dropout.json `
-    --manifest manifests\cv5\train.csv `
     --data-root ..\Small-Model-Track\Training\extracted\HAR\data `
+    --manifest manifests\cv5\train.csv `
+    --config configs\synced_flip_imu_dropout.json `
     --cache-dir cache-64 `
-    --output-dir $experiment `
+    --output-dir artifacts\cv5_synced_flip_imu_dropout `
     --fold $fold
 }
 ```
@@ -61,9 +52,9 @@ configuration (including `batch_size` and `num_workers`), for example:
 
 ```powershell
 uv run cuhkx-train `
-  --config configs\synced_flip_imu_dropout.json `
-  --manifest manifests\cv5\train.csv `
   --data-root ..\Small-Model-Track\Training\extracted\HAR\data `
+  --manifest manifests\cv5\train.csv `
+  --config configs\synced_flip_imu_dropout.json `
   --cache-dir cache-64 `
   --output-dir artifacts\cv5_synced_flip_imu_dropout `
   --fold 3 `
@@ -73,7 +64,6 @@ uv run cuhkx-train `
 Do not put one fold's `--resume` path inside a `0..4` loop.  A throughput
 experiment that changes `batch_size` or `num_workers` is a new experiment and
 must use a new artifact directory without `--resume`.
-
 
 
 ## Produce the only score used for model selection
@@ -106,8 +96,7 @@ fold is a hypothesis, not an accepted improvement.
 
 ## Ensemble selection without OOF weight leakage
 
-An ordinary OOF weight search selects its best weight after observing every OOF
-label, so its top score is optimistic.  The ensemble tool now prints two views:
+An ordinary OOF weight search selects its best weight after observing every OOF label, so its top score is optimistic. The ensemble tool now prints two views:
 
 1. The pooled OOF grid, used only to pick one final common deployment weight.
 2. `Cross-fitted blend accuracy`, where each held-out fold's weight is selected
@@ -124,50 +113,10 @@ uv run cuhkx-ensemble-oof `
   --output artifacts\cv5_candidate\ensemble_scan.json
 ```
 
-Keep only an ensemble that improves the cross-fitted score and does not collapse
-on an individual subject fold.  Use one common family weight across all folds;
-do not tune a distinct final weight per fold.
+Keep only an ensemble that improves the cross-fitted score and does not collapse on an individual subject fold.  Use one common family weight across all folds; do not tune a distinct final weight per fold.
 
-## Iteration rules
+## Pipelines
 
-1. Establish the clean `synced_flip` five-fold control on the corrected IMU
-   cache.  Historical three-fold results are not a comparable baseline.
-2. Change one related idea at a time.  Start with
-   `synced_flip_imu_dropout.json`, which drops one of the five fixed IMU device
-   slots for 15% of training samples.  It is disabled during validation and
-   inference, and does not change normalization statistics.
-3. Record config path, git revision, per-fold scores, OOF score, and decision
-   in `docs/EXPERIMENTS.md`.  Promote a candidate only after all five folds.
-4. Diagnose errors with `per_class` and `confusion_matrix` in `cv_report.json`.
-   Target a pattern demonstrated across folds, not a single leaderboard move.
-5. Only after choosing the architecture and ensemble by CV, train final models,
-   create `submission.csv`, validate it with `cuhkx-check-submission`, and make
-   at most the planned Kaggle submissions.
-
-## Critical adoption of `Gemini_Advice.md`
-
-Adopted now:
-
-- A clean control is mandatory because old checkpoints used the pre-fix IMU
-  cache and inconsistent visual-only flip history.
-- Subject-held-out OOF, per-fold reporting, and cross-fitted ensemble selection
-  are the decision gate.
-- IMU device dropout is a low-risk robustness experiment because the cache has
-  five fixed device slots and known partial-device clips.
-
-Deferred until the clean five-fold baseline exists:
-
-- Skeleton augmentation needs an explicit coordinate-system audit and a
-  controlled ablation.  Random 3D rotation is not automatically valid for
-  camera-aligned or gravity-aligned modalities.
-- Rank averaging and stacking need a nested/CV-safe meta-model protocol; they
-  should not be selected on the same OOF labels used to report their score.
-
-Rejected for the current small-model track:
-
-- Pretrained X3D, Video Swin, SlowFast, and similar backbones conflict with the
-  existing from-scratch/small-model constraints and would obscure the source of
-  any gain.  A larger architecture can be reconsidered only after a documented
-  capacity and rule audit.
-- The proposed “winning architecture” is a hypothesis, not evidence.  It is
-  not a substitute for a stable subject-held-out CV gain.
+1. Establish the clean `synced_flip` five-fold control on the corrected IMU cache.  
+2. Change one related idea at a time.  Start with `synced_flip_imu_dropout.json`, which drops one of the five fixed IMU device slots for 15% of training samples.  It is disabled during validation and inference, and does not change normalization statistics.
+3. Only after choosing the architecture and ensemble by CV, train final models, create `submission.csv`, validate it with `cuhkx-check-submission`, and make at most the planned Kaggle submissions.

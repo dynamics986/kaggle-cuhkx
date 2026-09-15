@@ -1,71 +1,169 @@
-# CUHK-X HAR Experiment Ledger
+# CUHK-X HAR experiment record
 
-Protocol: frozen subject-held-out CV5, `manifests/cv5/train.csv`, seed `20260719`. Primary metric: pooled OOF clip top-1. `F2` = fold-2 screen; not an OOF result. Historical 3-fold / fold-0 results are not comparable with CV5.
+This report separates the two validation protocols used by the project. Scores
+between the sections are **not comparable**.
 
-## Accepted / current reference
+| Protocol | Manifest | Meaning |
+| -------- | ------ | ------ |
+| Historical 3-fold | `manifests/cv3/{train,test}.csv` | July development split with three subject-held-out folds. |
+| Current 5-fold | `manifests/cv5/{train,test}.csv` | Frozen subject-held-out split: 3,036 clips, 18 users and 40 classes. Sep12–Sep14 report Fold 2 and Fold 4 only, so they are selected-fold screens, not full OOF. |
 
-| Model | Config | Evaluation | Result | Decision |
-|---|---|---:|---:|---|
-| Synced flip + IMU slot dropout | [config](../configs/synced_flip_imu_dropout.json) | CV5 OOF | 0.47332 | Baseline |
-| Pose + motion residual Skeleton | [config](../configs/pose_motion_residual.json) | CV5 OOF | **0.48650** (+0.01318) | Keep |
-| Baseline/residual probability blend (0.25/0.75) | Above two configs | CV5 pooled / cross-fitted OOF | **0.50198 / 0.49736** | Current local-CV ensemble; 51.7 MB |
-| Same blend, public LB | Above two configs | Public LB | 0.41791 | Below prior 0.42786; do not tune on LB |
+The split definitions are tracked Git inputs. Raw data, checkpoints, caches and
+submissions remain ignored under `artifacts/`.
 
-CV artifacts: [baseline report](../artifacts/cv5_synced_flip_imu_dropout/cv_report.json), [residual report](../artifacts/cv5_pose_motion_residual/cv_report.json).
+## Historical 3-fold experiments
 
-## Six-modality model screens
+These experiments used the earlier cache and preprocessing pipeline. They are
+kept as design evidence, but cannot be used as a baseline for five-fold work.
+The single-model entries are Fold-0 development results unless stated as OOF.
 
-| Change | Config | Evaluation | Result | Decision |
-|---|---|---:|---:|---|
-| Skeleton ST-GCN | [config](../configs/graph.json) | Historical fold 0 | 0.41152 | Reject |
-| Skeleton motion TCN | [config](../configs/motion.json) | Historical fold 0 | 0.51132 | Superseded by residual |
-| Visual V2: 192px, 12 frames, directional pooling | [config](../configs/visual_v2.json) | Historical 3-fold OOF | 0.46014 vs synced flip 0.46838 | Reject as replacement |
-| Visual V2 regularized | [config](../configs/visual_v2_regularized.json) | F2 | 0.44626 vs baseline 0.48333 | Reject |
-| YOLO person crop, all 3 visual streams | [config](../configs/visual_yolo_crop_probe.json) | F2 | 0.51296 vs residual 0.52963 (-0.01667) | Reject; do not run CV5 |
-| IMU synchronized device-CNN + relative Transformer | [config](../configs/pose_motion_residual_imu_candidate_probe.json) | F2 | Pending; gate >0.52963, preferred +0.01 | In progress |
+| Experiment | Evaluation | Accuracy | Size | Finding |
+| --- | --- | ---: | ---: | --- |
+| Base multimodal TCN | Fold 0 | 0.52675 | 4.57 MB | Best early single model. |
+| Inverse-sqrt balanced sampler | Fold 0 | 0.50617 | 4.57 MB | Lower standalone result; checked only for ensemble diversity. |
+| Skeleton ST-GCN | Fold 0 | 0.41152 | 4.45 MB | Rejected: weak and not complementary. |
+| Pose + velocity + acceleration TCN | Fold 0 | 0.51132 | 4.65 MB | Motion was complementary to raw pose. |
+| Clean base, visual flip disabled | Fold 0 | 0.47428 | 4.57 MB | Corrected flip, but still used the old IMU cache. |
+| Synchronized flip with fixed IMU slots | Fold 0 | 0.50823 | 4.57 MB | Established the corrected augmentation direction. |
+| Visual V2 | Fold 0 | 0.50103 | 6.26 MB | Retained for complementary errors. |
+| Visual V2 | 3-fold OOF | 0.46014 | 6.26 MB | Below synchronized flip alone at 0.46838. |
+| Synchronized flip + Visual V2 | 3-fold OOF | 0.49539 | — | Shared 0.575 / 0.425 blend improved all folds. |
 
-## True single-modality baselines
+### Historical blend checks
 
-| Modality | Config | CV5 OOF | Correct / available clips | Result |
-|---|---|---:|---:|---|
-| Skeleton | [config](../configs/modality_base.json) | **0.48520** | — / 2,931 | Strongest independent modality |
-| IMU, legacy TCN | [config](../configs/modality_base.json) | 0.27593 | 790 / 2,863 | Legacy reference |
-| Depth_Color | [config](../configs/modality_base.json) | 0.23920 | — / 2,931 | Weak alone |
-| Thermal | [config](../configs/modality_base.json) | 0.22550 | — / 2,891 | Weak alone |
-| IR | [config](../configs/modality_base.json) | 0.19810 | — / 2,933 | Weak alone |
-| Radar, legacy statistics TCN | [config](../configs/modality_base.json) | 0.18524 | 261 / 1,409 | Retained Radar path |
+| Blend | Fold-0 accuracy |
+| --- | ---: |
+| Base | 0.52675 |
+| Base + balanced sampler | 0.53704 |
+| Base + pose-motion (0.60 / 0.40) | 0.53601 |
+| Base + balanced + pose-motion (0.30 / 0.30 / 0.40) | 0.54938 |
+| Fine 2.5% grid maximum | 0.55041 |
 
-Reports: [legacy IMU](../artifacts/modality/IMU/report.json), [legacy Radar](../artifacts/modality/Radar/report.json).
+The fine-grid result added one clip and had tied asymmetric weights, so the
+simpler 0.30 / 0.30 / 0.40 blend was retained. Dropping Skeleton caused the
+largest Base-model ablation loss (0.21605), then IMU (0.02058) and IR
+(0.01440). This made cross-user skeleton robustness the main modelling target.
 
-## Visual YOLO crop: useful alone, harmful in current fusion
+### Historical limitations
 
-| Single visual model | Config | F2 no crop | F2 YOLO crop | Delta |
-|---|---|---:|---:|---:|
-| Depth_Color | [config](../configs/modality_visual_yolo.json) | 0.25612 | **0.40490** | +0.14878 |
-| IR | [config](../configs/modality_visual_yolo.json) | 0.18985 | **0.32331** | +0.13346 |
-| Thermal | [config](../configs/modality_visual_yolo.json) | 0.23150 | **0.28083** | +0.04934 |
+The old IMU parser compacted available devices, which could shift device
+identity when one device was missing. The corrected cache fixes the slots to
+`WTC`, `WTLA`, `WTLL`, `WTRA`, `WTRL`. Early visual-only horizontal flip was
+also inconsistent with Skeleton and IMU. These issues prevent strict causal
+comparison between the earliest runs and corrected runs.
 
-Decision: retain detector/crop artifacts for a future confidence-gated visual fusion experiment; do not apply three-stream crop to the current fusion model.
+## 5-fold protocol
 
-## IMU / Radar temporal encoders
+The current split is frozen and subject-held-out. Completed five-fold results
+use pooled OOF over all 3,036 clips. Selected-fold results use Fold 2 (540
+validation clips) and Fold 4 (640); their weighted score is over only these
+1,180 clips, not full five-fold OOF.
 
-| Modality | Encoder / preprocessing | Config | CV5 OOF | Delta | Decision |
-|---|---|---|---:|---:|---|
-| IMU | CNN + BiGRU | Removed config; artifact [report](../artifacts/modality_sequence_v2/IMU/report.json) | 0.24659 | -0.02934 vs legacy TCN | Reject |
-| IMU | Regularized CNN + BiGRU rescue | Removed config; artifact [report](../artifacts/modality_sequence_rescue/IMU/report.json) | 0.24869 | -0.02724 vs legacy TCN | Reject |
-| IMU | Synchronized TCN | [config](../configs/modality_imu_synced_tcn.json) | 0.25009 | — | New-preprocessing control |
-| IMU | Device-aware CNN + relative Transformer | [config](../configs/modality_imu_device_cnn_rel_transformer.json) | **0.33461** | **+0.08453** vs synchronized TCN; all 5 folds up | Keep; fusion F2 gate |
-| Radar | CNN + GRU | Removed config; artifact [report](../artifacts/modality_sequence_v2/Radar/report.json) | 0.14904 | -0.03620 vs legacy TCN | Reject |
-| Radar | Regularized CNN + GRU rescue | Removed config; artifact [report](../artifacts/modality_sequence_rescue/Radar/report.json) | 0.17175 | -0.01348 vs legacy TCN | Reject |
-| Radar | Statistics TCN on point-preserving cache | [config](../configs/modality_radar_statistics_tcn.json) | 0.17033 | — | New-preprocessing control |
-| Radar | Raw point cloud PointNet + relative Transformer | Removed after evaluation; artifact retained locally | 0.16395 | -0.00639 vs synchronized TCN | Reject; use legacy Radar TCN in fusion |
+### Completed full 5-fold OOF runs
 
-Current CV5 reports: [synchronized baselines](../artifacts/modality_sequence_v2/baseline); rejected candidate artifacts are retained locally only.
+| Experiment | Pooled OOF | Detail | Decision |
+| --- | ---: | --- | --- |
+| Synchronized flip + 15% IMU-device dropout | 0.47332 (1,437 / 3,036) | Fold accuracies: 0.40952, 0.51509, 0.48333, 0.50718, 0.45625 | Five-fold baseline. |
+| Pose + motion residual gate | 0.48650 (1,477 / 3,036) | Best completed single-model family. | Keep. |
+| Baseline + residual blend | 0.50198 (1,524 / 3,036) | Common probability weight: 0.25 / 0.75. | Pooled estimate. |
+| Same blend with leave-one-fold-out weight selection | 0.49736 (1,510 / 3,036) | Improved every held-out fold. | Conservative preferred estimate. |
 
-## Active gates
+The ten-checkpoint baseline/residual inference package is 51.7 MB. Its public
+LB score was 0.41791, below an older 0.42786 submission. That small public
+signal is not used for model selection because it conflicts with the
+cross-fitted local result.
 
-| Candidate | Fixed baseline | Required result | Next action |
-|---|---:|---:|---|
-| Six-modality IMU candidate, F2 | Pose-motion residual 0.52963 | >0.52963; preferred >=0.53963 | Pass: CV5. Fail: preserve current ensemble. |
-| Radar PointNet (removed) | Radar legacy TCN 0.18524 | Not met | Closed |
-| Three-stream YOLO crop fusion | Pose-motion residual 0.52963 | Not met | Closed |
+### Rejected or incomplete 5-fold screens
+
+| Experiment | Evaluation | Result | Decision |
+| --- | --- | --- | --- |
+| Visual V2 regularized, 192 px, batch 24 | Start-up | CUDA allocation failure before the first batch | No quality conclusion. |
+| Same Visual V2, batch 16 / workers 6 | Fold 2 | 0.44626 | Rejected against the Fold-2 baseline gate, 0.48333. |
+| Sep13 m04 depth-weighted probability sum | Fold 2 and 4 | Failed during output normalization | No score; fix before retesting. |
+
+## Sep12: YOLO-cropped screens
+
+Sep12 introduced fold-safe YOLO person crops for IR, Depth_Color and Thermal.
+The Fold-2 detector was used only for Fold 2; Fold 4 and full-data detectors
+were trained separately. The early `artifacts/sep12/serial` run was an
+incomplete, pre-alignment Fold-4-only pass (m02 0.28594, m03 0.28438, m04
+0.28906, m05 0.30781, m06 0.26875, m07 0.31250, m08 0.28125). It is superseded
+by the depth-aligned result below and is not used for selection.
+
+| Method | Architecture | Fold 2 | Fold 4 | Weighted | Finding |
+| --- | --- | ---: | ---: | ---: | --- |
+| m01 | LightGBM: sensors + three-modality crop summaries | 0.53148 | 0.44531 | 0.48475 | Strongest Sep12 result; full-data refit was created. |
+| m02 | Three CNN branches, temporal attention, concat head and vote | 0.35185 | 0.30469 | 0.32644 | Best initial visual method. |
+| m03 | IR + Depth_Color CNN attention and concat | 0.32037 | 0.28438 | 0.30085 | Thermal removal did not help. |
+| m04 | Per-modality attention and probability sum | 0.31667 | 0.30781 | 0.31186 | Below m02. |
+| m05 | Dual IR/Depth ResNet-18 with temporal attention | 0.37593 | 0.33125 | 0.35127 | Best initial visual encoder. |
+| m06 | Independent CNN encoders and concat control | 0.32037 | 0.27656 | 0.29661 | Temporal attention was useful. |
+| m07 | Lightweight visual temporal Transformer | 0.34074 | 0.30781 | 0.32373 | No advantage over m02. |
+| m08 | CNN with squeeze-and-excitation | 0.32407 | 0.27656 | 0.29873 | SE alone did not help. |
+
+m05 plus YOLO was 96.50 MB, leaving little capacity under the 100 MB limit.
+The evidence favoured better generalization and preprocessing over another large
+visual backbone.
+
+## Sep13: depth-led robustness changes
+
+Sep13 reused the leak-checked Sep12 depth-aligned crops and sensor caches. m01
+accepted a candidate only when both selected folds did not decline and the
+weighted score increased. Visual changes used clip-consistent augmentation plus
+method-specific gates or attention.
+
+| Method | Change from Sep12 | Fold 2 | Fold 4 | Weighted | Delta |
+| --- | --- | ---: | ---: | ---: | ---: |
+| m01 | LightGBM narrow regularized search | 0.53889 | 0.46406 | 0.49831 | +0.01356 |
+| m02 | Depth-weighted vote + modality/content gate | 0.36852 | 0.35000 | 0.35847 | +0.03203 |
+| m03 | Learned IR/Depth fusion gate | 0.34815 | 0.31719 | 0.33136 | +0.03051 |
+| m05 | Moderate clip-consistent augmentation | 0.44259 | 0.35938 | 0.39748 | +0.04621 |
+| m06 | Temporal attention + modality gate | 0.38148 | 0.32813 | 0.35254 | +0.05593 |
+| m07 | Time attention before modality-token Transformer | 0.30000 | 0.25000 | 0.27288 | -0.05085 |
+| m08 | SE + spatial attention + modality gate | 0.36481 | 0.31406 | 0.33729 | +0.03856 |
+| m04 | Depth-weighted probability sum | Failed | Failed | — | — |
+
+Selected m01 parameters were `num_leaves=32`, `min_data_in_leaf=12`,
+`feature_fraction=0.9`, `lambda_l1=0`, `lambda_l2=0.1`, with learning rate
+0.035 and 1,000 rounds. Its detector-inclusive deployment size was 78.11 MB.
+Sep13 m05 was the best visual screen and established moderate augmentation as
+the visual reference.
+
+## Sep14: strong augmentation stress and box features
+
+Sep14 applied shared flip, 15–20% crop/scale, brightness/contrast ±15%, 15%
+area erasing at 35%, temporal offset ±1 and speed 0.8–1.2x. This policy was too
+strong after YOLO cropping.
+
+| Experiment | Fold 2 | Fold 4 | Weighted | Decision |
+| --- | ---: | ---: | ---: | --- |
+| m05 Depth_Color-only ResNet-18, strong augmentation | 0.37778 | 0.34219 | 0.35847 | Below Sep13 dual m05; retain IR. |
+| m05 dual ResNet-18, IR dropout 35%, strong augmentation | 0.38704 | 0.25156 | 0.31356 | Fold-4 collapse; dropout too strong. |
+| m05 dual ResNet-18, reliability gate, strong augmentation | 0.33519 | 0.30469 | 0.31864 | Underfit; reject. |
+| m01 Sep13 feature set | 0.53889 | 0.46406 | 0.49831 | Reference. |
+| m01 + YOLO-box temporal features, box baseline | 0.55926 | 0.48594 | **0.51949** | Best measured selected-fold result. |
+| m01 + YOLO-box temporal features, saved grid candidate | 0.55370 | 0.48906 | 0.51864 | Slightly below box baseline. |
+
+The box baseline used the Sep13 LightGBM parameters plus box features. The
+grid runner did not include that baseline in its winner comparison, then refit
+a marginally worse candidate. The next m01 full refit should use the measured
+box-baseline parameters, rather than the saved grid winner. The detector plus
+saved-grid LightGBM was 75.49 MB.
+
+Two public r3 thermal-specialist models were fit on all notebook training rows
+and wrote submissions. Plain r3 reached train accuracy 0.7357; strong-aug r3
+reached 0.4424. Neither has held-out validation, so neither training accuracy
+is a generalization ranking. Each inference model is about 19.69 MB.
+
+## Conclusions through Sep14
+
+1. The most reliable completed result is the five-fold pose-motion blend:
+   cross-fitted OOF 0.49736.
+2. The strongest selected-fold screen is m01 with YOLO-box temporal features:
+   0.51949 weighted accuracy. It needs the correct baseline full refit.
+3. Sep13 moderate augmentation improved the visual methods; Sep14 strong
+   augmentation degraded every m05 variant. Start future visual work from
+   Sep13 with only weak spatial and temporal perturbations.
+4. The visual-only Transformer and post-crop reliability gate did not improve
+   this dataset. Prioritize fold-safe box features, data quality, weak
+   augmentation and probability blending over larger visual encoders.
