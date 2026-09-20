@@ -1,21 +1,23 @@
-# IMU / Radar 时序模型第二轮实验
+# Second Round of IMU / Radar Temporal-Model Experiments
 
-本轮只训练真正的单模态模型，不修改六模态融合网络。所有训练继续使用冻结的
-`manifests\cv5\train.csv`。旧的 `cache-64` 和历史 artifacts 均保留；新实验必须使用
-`cache-64-synced-points`，否则 candidate 会明确报错。
+This round trains only genuine single-modality models and does not modify the six-modality fusion network. All training continues to use the frozen
+`manifests\cv5\train.csv`. The old `cache-64` and historical artifacts are
+retained; the new experiments must use `cache-64-synced-points`, otherwise the
+candidate explicitly raises an error.
 
-## 1. 实验内容
+## 1. Experiments
 
-- IMU baseline：修正时间同步后的 80 维输入 + 原 TCN。
-- IMU candidate：五设备共享 CNN + device embedding/gated pooling + 两层相对位置 Transformer。
-- Radar baseline：同一新缓存中的 13 维逐帧统计量 + 原 TCN。
+- IMU baseline: corrected time-synchronized 80-dimensional input plus the original TCN.
+- IMU candidate: shared CNN across five devices, device embedding/gated pooling, and a two-layer relative-position Transformer.
+- Radar baseline: 13-dimensional per-frame statistics from the same new cache plus the original TCN.
 
-IMU 会先按 timestamp 排序、合并重复 timestamp，再把五个设备插值到共同的 64 点时间网格；
-设备在自身观测范围以外的位置由 mask 排除。
+IMU first sorts timestamps, merges duplicate timestamps, and interpolates the
+five devices onto a shared 64-point time grid. Positions outside a device's
+observed range are excluded by the mask.
 
-## 2. PowerShell 变量与 GPU 预检
+## 2. PowerShell variables and GPU preflight
 
-在 `har-solution` 根目录运行：
+Run from the `har-solution` root:
 
 ```powershell
 $manifest = "manifests\cv5\train.csv"
@@ -27,11 +29,12 @@ $candidateRoot = "artifacts\modality_sequence_v2\candidate"
 uv run python -c "import torch; print({'cuda_available': torch.cuda.is_available(), 'gpu': torch.cuda.get_device_name(0) if torch.cuda.is_available() else None, 'cuda': torch.version.cuda})"
 ```
 
-必须看到 `cuda_available: True`。
+The output must contain `cuda_available: True`.
 
-## 3. 构建新的同步 / Radar 统计缓存
+## 3. Build the new synchronized / Radar-statistics cache
 
-不要把 `$cacheDir` 改回旧的 `cache-64`，也不要给旧缓存执行 `--overwrite`。
+Do not change `$cacheDir` back to the old `cache-64`, and do not run
+`--overwrite` on the old cache.
 
 ```powershell
 uv run cuhkx-cache `
@@ -43,13 +46,13 @@ uv run cuhkx-cache `
   --workers 4
 ```
 
-检查任意缓存文件的字段和形状：
+Inspect the fields and shapes of any cache file:
 
 ```powershell
 uv run python -c "from pathlib import Path; import numpy as np; p=next(Path(r'cache-64-synced-points').glob('train_*.npz')); z=np.load(p); print(p); print({k:z[k].shape for k in z.files})"
 ```
 
-输出中必须包含：
+The output must include:
 
 ```text
 imu                 (64, 80)
@@ -58,10 +61,11 @@ imu_device_mask     (64, 5)
 radar               (64, 13)
 ```
 
-## 4. 先做 fold 2 smoke/probe
+## 4. Run the Fold-2 smoke/probe first
 
-先确认三条路径均能训练、写 checkpoint 和预测。`--max-clips-per-class 2` 只用于流程检查，
-这些输出不能作为准确率结论。
+First confirm that all three paths can train, write checkpoints, and predict.
+`--max-clips-per-class 2` is only for workflow verification; these outputs
+cannot support accuracy conclusions.
 
 ```powershell
 uv run cuhkx-modality-train `
@@ -84,7 +88,7 @@ uv run cuhkx-modality-train `
 
 ```
 
-## 5. 完整 CV5：同步后的 TCN baseline
+## 5. Full CV5: synchronized TCN baseline
 
 ```powershell
 $baselineConfigs = @{
@@ -107,9 +111,10 @@ foreach ($modality in @("IMU", "Radar")) {
 }
 ```
 
-IMU baseline 必须重跑，因为修复 timestamp 后输入已经改变；不能直接拿旧 0.27593 当作严格对照。
+The IMU baseline must be rerun because the input changed after timestamp repair;
+the old 0.27593 cannot be used directly as a strict comparison.
 
-## 6. 完整 CV5：IMU Transformer candidate
+## 6. Full CV5: IMU Transformer candidate
 
 ```powershell
 $candidateConfigs = @{
@@ -131,9 +136,11 @@ foreach ($modality in @("IMU")) {
 }
 ```
 
-Radar PointNet candidate 已在完整 CV5 后拒绝，相关实现和配置已删除；其历史 artifacts 保留在本机审计。
+The Radar PointNet candidate was rejected after full CV5. Its implementation
+and configuration have been removed, while its historical artifacts remain
+available locally for audit.
 
-每折产物位于：
+Each fold writes:
 
 ```text
 artifacts\modality_sequence_v2\<baseline|candidate>\<IMU|Radar>\fold_<0..4>\
@@ -143,7 +150,7 @@ artifacts\modality_sequence_v2\<baseline|candidate>\<IMU|Radar>\fold_<0..4>\
   validation_predictions.csv
 ```
 
-## 7. 绘制每折训练曲线
+## 7. Plot training curves for each fold
 
 ```powershell
 foreach ($modality in @("IMU", "Radar")) {
@@ -160,9 +167,10 @@ foreach ($fold in 0..4) {
 }
 ```
 
-每折生成 `training_curves.png`，可用于判断过拟合、欠拟合和最佳 epoch。
+Each fold generates `training_curves.png`, which can be used to assess
+overfitting, underfitting, and the best epoch.
 
-## 8. 生成严格 OOF report
+## 8. Generate the strict OOF report
 
 ```powershell
 foreach ($modality in @("IMU", "Radar")) {
@@ -187,7 +195,7 @@ uv run cuhkx-modality-report `
   --output (Join-Path $candidateRoot "IMU\report.json")
 ```
 
-## 9. 比较 baseline 与 candidate
+## 9. Compare baseline and candidate
 
 ```powershell
 $baseline = Get-Content (Join-Path $baselineRoot "IMU\report.json") | ConvertFrom-Json
@@ -206,7 +214,7 @@ $comparison | Export-Csv `
   -NoTypeInformation -Encoding UTF8
 ```
 
-还应逐折查看，而不只看 pooled OOF：
+Inspect every fold as well as pooled OOF:
 
 ```powershell
 $baseline = Get-Content (Join-Path $baselineRoot "IMU\report.json") | ConvertFrom-Json
@@ -222,25 +230,29 @@ $candidate = Get-Content (Join-Path $candidateRoot "IMU\report.json") | ConvertF
 }
 ```
 
-只有 pooled OOF 提高、且多数 fold 不下降时，才建议把新 encoder 接入六模态融合模型。
+Only recommend integrating the new encoder into the six-modality fusion model
+when pooled OOF improves and most folds do not decline.
 
-## 10. 单模态结论：保留 IMU candidate，拒绝 Radar PointNet
+## 10. Single-modality conclusion: retain the IMU candidate and reject Radar PointNet
 
-完整五折 OOF 结果如下：
+The full five-fold OOF results are:
 
-| Modality | Baseline OOF | Candidate OOF | Delta | 决策 |
+| Modality | Baseline OOF | Candidate OOF | Delta | Decision |
 |---|---:|---:|---:|---|
-| IMU | 0.25009 | 0.33461 | +0.08453 | 保留 device-aware CNN + relative Transformer |
-| Radar | 0.17033 | 0.16395 | -0.00639 | 拒绝 PointNet + Transformer |
+| IMU | 0.25009 | 0.33461 | +0.08453 | Retain the device-aware CNN + relative Transformer |
+| Radar | 0.17033 | 0.16395 | -0.00639 | Reject PointNet + Transformer |
 
-IMU candidate 在五个 held-out fold 都提高。Radar candidate 只在 fold 4 略有提高，整体下降。
-融合实验继续使用原 `cache-64` 中的 Radar 13 维统计 TCN；不会使用 PointNet，也不会使用
-`cache-64-synced-points` 中改变过采样策略的 Radar 字段。
+The IMU candidate improves all five held-out folds. The Radar candidate improves
+only Fold 4 slightly and declines overall. Fusion experiments continue to use
+the original 13-dimensional Radar-statistics TCN in `cache-64`; they do not use
+PointNet or the Radar fields with a changed sampling strategy in
+`cache-64-synced-points`.
 
-## 11. 六模态 IMU candidate：固定 fold-2 gate
+## 11. Six-modality IMU candidate: fixed Fold-2 gate
 
-该 probe 只替换 IMU：它从 `cache-64-synced-points` 读取同步后的五设备张量；视觉、
-Skeleton motion residual、融合 Transformer、旧 Radar TCN 都继续从原 `cache-64` 工作。
+This probe replaces only IMU: it reads the synchronized five-device tensor from
+`cache-64-synced-points`; vision, Skeleton motion residual, the fusion
+Transformer, and the old Radar TCN continue to use the original `cache-64`.
 
 ```powershell
 $manifest = "manifests\cv5\train.csv"
@@ -258,7 +270,7 @@ uv run cuhkx-train `
   --device cuda
 ```
 
-训练中可查看进度：
+Monitor progress during training:
 
 ```powershell
 uv run cuhkx-monitor `
@@ -266,7 +278,7 @@ uv run cuhkx-monitor `
   --patience 9
 ```
 
-训练结束后绘制曲线并比较 fold-2 gate：
+After training, plot the curve and compare the Fold-2 gate:
 
 ```powershell
 uv run cuhkx-modality-plot `
@@ -283,5 +295,6 @@ $candidate = Get-Content "$probeRoot\fold_2\summary.json" | ConvertFrom-Json
 } | Format-List
 ```
 
-当前基线为 `0.52963`。candidate 必须超过该值，且建议达到至少 `+0.01`，才启动完整 CV5；
-否则保留现有最终集成，不训练其余四折。
+The current baseline is `0.52963`. The candidate must exceed it, and should
+preferably gain at least `+0.01`, before starting full CV5; otherwise retain
+the current final ensemble and do not train the remaining four folds.

@@ -4,10 +4,7 @@
 __pycache__/
 .pytest_cache/
 .ruff_cache/
-.public-detector-test-tmp/
-.public-ig65m-test-tmp/
 
-.pytest-tmp
 artifacts/
 references/
 cache/
@@ -15,12 +12,7 @@ cache-64/
 cache-64-synced-points/
 *.pyc
 
-
 yolo26n.pt
 yolov8n.pt
-cache-sep12/
-.sep12-test-tmp/
-.sep12-serial-test-tmp/
 
 cache-public/
-.public-test-tmp/
